@@ -1,0 +1,56 @@
+# Edge: Traefik on :80/:443 with automatic Let's Encrypt certificates.
+#
+# Two static routes that never change as deployments come and go:
+#   PANEL_DOMAIN -> web:3000
+#   API_DOMAIN   -> api:8000
+#
+# Deployment subdomains (*.BASE_DOMAIN) need a wildcard certificate, which
+# Let's Encrypt only issues over the DNS-01 challenge. Those routes therefore
+# live in docker-compose.traefik-wildcard.yml, which install.sh layers on top
+# only when a DNS provider token is supplied.
+#
+# Unlike Coolify, Traefik never needs labels on the inference containers: the
+# API already routes deployment subdomains internally by Host header.
+
+services:
+  traefik:
+    # v3.6+ required: earlier Traefik pins the Docker API to v1.24, which Docker
+    # Engine 29 rejects ("client version 1.24 is too old"). The provider then
+    # never discovers these services and every route 404s.
+    image: traefik:v3.6
+    restart: unless-stopped
+    command:
+      - --configFile=/etc/traefik/traefik.yml
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Read-only: Traefik only needs to discover the services below.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/acme.json:/etc/traefik/acme.json
+    environment:
+      # Consumed only by the DNS-01 challenge; unset under HTTP-01.
+      CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN:-}
+    networks:
+      - llmpanel
+
+  web:
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.llmpanel-web.rule: Host(`${PANEL_DOMAIN}`)
+      traefik.http.routers.llmpanel-web.entrypoints: websecure
+      traefik.http.routers.llmpanel-web.tls.certresolver: le
+      # Above the wildcard catch-all, so the panel host is never swallowed by it.
+      traefik.http.routers.llmpanel-web.priority: "100"
+      traefik.http.services.llmpanel-web.loadbalancer.server.port: "3000"
+
+  api:
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.llmpanel-api.rule: Host(`${API_DOMAIN}`)
+      traefik.http.routers.llmpanel-api.entrypoints: websecure
+      traefik.http.routers.llmpanel-api.tls.certresolver: le
+      traefik.http.routers.llmpanel-api.priority: "100"
+      traefik.http.routers.llmpanel-api.service: llmpanel-api
+      traefik.http.services.llmpanel-api.loadbalancer.server.port: "8000"

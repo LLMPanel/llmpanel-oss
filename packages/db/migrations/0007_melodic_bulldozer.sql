@@ -1,0 +1,1 @@
+ALTER TABLE `provider_connections` ADD `encrypted_totp_secret` text;

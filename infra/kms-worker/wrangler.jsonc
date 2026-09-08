@@ -1,0 +1,17 @@
+// LLMPanel KMS worker — holds the credential-encryption master key so it
+// never sits on the API host's disk. See README.md for setup.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "llmpanel-kms",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-07",
+  // Secrets (set with `wrangler secret put`, never in this file):
+  //   MASTER_KEY  — the encryption key material (the old ENCRYPTION_KEY value)
+  //   AUTH_TOKEN  — bearer token the API host presents; rotate to revoke access
+  // Optional plain var (can live here or in the dashboard):
+  //   ALLOWED_IPS — comma-separated caller IPs; empty/unset disables the check
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

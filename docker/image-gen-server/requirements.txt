@@ -1,0 +1,12 @@
+# Pinned loosely — the CUDA base image already ships a matching torch build.
+diffusers>=0.31.0
+transformers>=4.46.0
+accelerate>=1.1.0
+safetensors>=0.4.5
+sentencepiece>=0.2.0
+protobuf>=4.25.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+Pillow>=10.4.0
+huggingface_hub>=0.26.0

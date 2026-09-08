@@ -1,0 +1,40 @@
+# Traefik static config — DNS-01 challenge (Cloudflare).
+#
+# Template: install.sh copies this to <install-dir>/traefik/traefik.yml and
+# substitutes __ACME_EMAIL__.
+#
+# This is the configuration that makes per-deployment subdomains work: DNS-01 is
+# the only ACME challenge Let's Encrypt will issue a wildcard certificate for.
+# Requires CF_DNS_API_TOKEN with Zone:DNS:Edit on the zone, and a wildcard
+# record *.BASE_DOMAIN pointing at this host.
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: llmpanel_llmpanel
+
+certificatesResolvers:
+  le:
+    acme:
+      email: __ACME_EMAIL__
+      storage: /etc/traefik/acme.json
+      dnsChallenge:
+        provider: cloudflare
+        resolvers:
+          - "1.1.1.1:53"
+          - "8.8.8.8:53"
+
+log:
+  level: INFO

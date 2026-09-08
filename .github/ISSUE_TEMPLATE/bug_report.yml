@@ -1,0 +1,55 @@
+name: Bug report
+description: Something in the panel, the API, or a deployment is not working.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Deploy ...
+        3. See error
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Deployment mode
+      options:
+        - self-hosted (local Docker)
+        - cloud (RunPod / Vast.ai)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "Output of: docker inspect llmpanel-api-1 --format '{{.Image}}'"
+    validations:
+      required: true
+
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      placeholder: Ubuntu 24.04, 2x RTX 4090, Docker 27.3
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        From `docker logs llmpanel-api-1 --tail 100`. The API logs request
+        bodies — redact your API keys and provider credentials before pasting.
+      render: shell

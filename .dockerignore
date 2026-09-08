@@ -1,0 +1,26 @@
+# Host node_modules contain platform-native binaries (darwin-arm64). Copying them
+# into a linux image silently shadows the ones pnpm installs there.
+**/node_modules
+
+# Build output — regenerated inside the image
+**/dist
+**/.next
+**/.turbo
+**/*.tsbuildinfo
+
+# Local state that must never end up in a published image
+**/local.db
+**/local.db-*
+**/*.sqlite
+**/.env
+**/.env.*
+!**/.env.example
+**/generated-images
+
+# Repo noise
+.git
+.github
+**/.DS_Store
+docs
+*.md
+!README.md

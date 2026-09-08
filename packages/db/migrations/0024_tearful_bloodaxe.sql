@@ -1,0 +1,1 @@
+ALTER TABLE `request_logs` ADD `client_request_id` text;

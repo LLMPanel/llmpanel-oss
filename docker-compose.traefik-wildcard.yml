@@ -1,0 +1,25 @@
+# Adds per-deployment subdomain routing: *.BASE_DOMAIN -> api:8000
+#
+# Layered on top of docker-compose.traefik.yml, and ONLY when a DNS-01 provider
+# token is configured. Let's Encrypt will not issue a wildcard certificate over
+# the HTTP-01 challenge, and Traefik cannot request certificates for a
+# HostRegexp rule at all — it has no concrete domain list to ask for. The
+# explicit tls.domains below is what supplies that list.
+#
+# Requires a wildcard DNS record: *.BASE_DOMAIN -> this host.
+
+services:
+  api:
+    labels:
+      # Lowest priority: the exact-Host routers for the panel and API always win.
+      # Any other host reaching :443 is treated as a deployment hostname, and the
+      # API returns 404 for hosts it does not recognise.
+      # `.+` rather than `^.+$`: compose treats `$` as an interpolation sigil, and
+      # any non-empty host matches this either way.
+      traefik.http.routers.llmpanel-deployments.rule: HostRegexp(`.+`)
+      traefik.http.routers.llmpanel-deployments.entrypoints: websecure
+      traefik.http.routers.llmpanel-deployments.priority: "1"
+      traefik.http.routers.llmpanel-deployments.service: llmpanel-api
+      traefik.http.routers.llmpanel-deployments.tls.certresolver: le
+      traefik.http.routers.llmpanel-deployments.tls.domains[0].main: ${BASE_DOMAIN}
+      traefik.http.routers.llmpanel-deployments.tls.domains[0].sans: "*.${BASE_DOMAIN}"

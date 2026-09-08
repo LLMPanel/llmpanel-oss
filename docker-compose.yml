@@ -1,0 +1,96 @@
+# LLMPanel — base stack.
+#
+# This file publishes NO host ports on purpose. Pick exactly one edge:
+#   docker-compose.ports.yml    plain HTTP on :3000/:8000 (no domain, no TLS)
+#   docker-compose.traefik.yml  Traefik on :80/:443 with Let's Encrypt
+#
+# install.sh selects them by writing COMPOSE_FILE into .env, e.g.
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml:docker-compose.gpu.yml
+
+name: llmpanel
+
+services:
+  api:
+    # Public images, pulled anonymously by install.sh. The cloud build runs the
+    # same compose file with LLMPANEL_IMAGE_API/_WEB pointed at the private
+    # -cloud images, so there is only ever one compose file to maintain.
+    image: ${LLMPANEL_IMAGE_API:-ghcr.io/llmpanel/llmpanel-api}:${LLMPANEL_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-self-hosted}
+
+      # Defaults to the embedded SQLite file on the data volume. Point at a
+      # libsql:// URL (Turso) and set DATABASE_AUTH_TOKEN to use a hosted DB
+      # instead — the client is the same, only the URL changes.
+      DATABASE_URL: ${DATABASE_URL:-file:/data/llmpanel.db}
+      DATABASE_AUTH_TOKEN: ${DATABASE_AUTH_TOKEN:-}
+      IMAGE_OUTPUT_DIR: /data/generated-images
+
+      # Refuse to start rather than silently fall back to a guessable secret.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?run install.sh, or set it in .env}
+      # Credential-encryption key. Either set ENCRYPTION_KEY here, or set
+      # KMS_URL + KMS_TOKEN to fetch it from the KMS worker at boot
+      # (infra/kms-worker) so the key never sits on this host. The API refuses
+      # to boot in production when neither is configured.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      KMS_URL: ${KMS_URL:-}
+      KMS_TOKEN: ${KMS_TOKEN:-}
+
+      BETTER_AUTH_BASE_URL: ${API_URL}
+      PUBLIC_API_URL: ${API_URL}
+      NEXT_PUBLIC_APP_URL: ${APP_URL}
+
+      BASE_DOMAIN: ${BASE_DOMAIN}
+      GATEWAY_PROTOCOL: ${GATEWAY_PROTOCOL:-http}
+
+      # Written by install.sh after probing the host. "false" makes the UI say
+      # "no GPU detected" instead of failing inside Docker at deploy time.
+      GPU_AVAILABLE: ${GPU_AVAILABLE:-false}
+
+      # This container's own loopback is not the host's. Deployment containers
+      # publish their ports on the host, so reach them via the gateway address.
+      DEPLOYMENT_HOST: host.docker.internal
+
+      HF_TOKEN: ${HF_TOKEN:-}
+      # Transactional email (sign-up OTP, 2FA OTP, password reset). Either
+      # Resend or Cloudflare Email Sending; EMAIL_PROVIDER forces one when both
+      # are set. Nothing set → email features stay disabled rather than failing.
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_EMAIL_API_TOKEN: ${CLOUDFLARE_EMAIL_API_TOKEN:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+
+    volumes:
+      - llmpanel_data:/data
+      # The API provisions inference containers on the host daemon.
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      # Makes DEPLOYMENT_HOST resolvable on Linux, where it is not built in.
+      - "host.docker.internal:host-gateway"
+    networks:
+      - llmpanel
+
+  web:
+    image: ${LLMPANEL_IMAGE_WEB:-ghcr.io/llmpanel/llmpanel-web}:${LLMPANEL_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Server-side proxy target for /api/* — internal DNS, never leaves the network.
+      HONO_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - llmpanel
+
+volumes:
+  llmpanel_data:
+
+networks:
+  llmpanel:

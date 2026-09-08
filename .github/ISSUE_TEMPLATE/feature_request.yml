@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest something LLMPanel should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The problem you hit, not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to happen
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you are doing instead today

@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "outDir": "dist",
+    "paths": {
+      "@llmpanel/db": ["../../packages/db/src/index.ts"],
+      "@llmpanel/db/*": ["../../packages/db/src/*"],
+      "@llmpanel/providers": ["../../packages/providers/src/index.ts"],
+      "@llmpanel/providers/*": ["../../packages/providers/src/*"],
+      "@llmpanel/shared": ["../../packages/shared/src/index.ts"],
+      "@llmpanel/shared/*": ["../../packages/shared/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

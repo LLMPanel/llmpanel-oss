@@ -1,0 +1,26 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**"],
+      // Turborepo runs tasks in a filtered environment, so anything the build
+      // reads has to be declared here or it arrives as undefined — which is
+      // how a clean-checkout build fails on the Zod schema in apps/web/env.ts
+      // while a local build with a .env on disk passes.
+      "env": [
+        "NODE_ENV",
+        "HONO_API_URL",
+        "NEXT_PUBLIC_*",
+        "SENTRY_ORG",
+        "SENTRY_PROJECT",
+        "SENTRY_AUTH_TOKEN"
+      ]
+    },
+    "dev": {
+      "cache": false
+    },
+    "lint": {},
+    "typecheck": {}
+  }
+}

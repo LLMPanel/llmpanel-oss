@@ -1,0 +1,44 @@
+# Node modules (all apps & packages)
+node_modules/
+**/node_modules/
+
+# Next.js
+.next/
+
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+dist/
+**/dist/
+.turbo/
+
+# LLMPanel generated image outputs
+generated-images/
+**/generated-images/
+
+# Local SQLite databases (live data — never commit)
+local.db
+local.db-*
+*.db
+
+# Runtime backup exports
+apps/api/backup-data/
+
+# OS / editor junk
+.DS_Store
+**/.DS_Store
+.idea/
+
+# Timestamped sqlite backups (e.g. local.db.bak-20260801-110152)
+local.db.bak-*
+
+# Wrangler build/deploy scratch
+**/.wrangler/tmp/
+
+# Local archives (e.g. the retired marketing_site_v2 snapshot)
+*.zip

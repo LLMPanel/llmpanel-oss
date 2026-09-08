@@ -1,0 +1,21 @@
+{
+  "name": "@llmpanel/shared",
+  "version": "0.0.1",
+  "main": "src/index.ts",
+  "private": true,
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-auth": "^1.4.18",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "typescript": "^5.8.3"
+  }
+}

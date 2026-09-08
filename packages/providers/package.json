@@ -1,0 +1,29 @@
+{
+  "name": "@llmpanel/providers",
+  "version": "0.0.1",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.7.0",
+  "dependencies": {
+    "dockerode": "^4.0.2",
+    "graphql-request": "^6.1.0",
+    "graphql": "^16.8.1",
+    "otplib": "^12.0.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.38",
+    "@types/node": "^22.15.3",
+    "typescript": "^5.8.3"
+  }
+}

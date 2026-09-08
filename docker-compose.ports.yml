@@ -1,0 +1,13 @@
+# Edge: plain HTTP, no domain, no TLS. Reach the panel at http://<vps-ip>:3000
+#
+# Deployment subdomains (*.BASE_DOMAIN) do not work in this mode — they need
+# wildcard DNS and a proxy. Use docker-compose.traefik.yml once you have a domain.
+
+services:
+  api:
+    ports:
+      - "8000:8000"
+
+  web:
+    ports:
+      - "3000:3000"

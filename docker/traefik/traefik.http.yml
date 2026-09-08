@@ -1,0 +1,38 @@
+# Traefik static config — HTTP-01 challenge.
+#
+# Template: install.sh copies this to <install-dir>/traefik/traefik.yml and
+# substitutes __ACME_EMAIL__.
+#
+# No DNS credentials required. The trade-off: Let's Encrypt issues one certificate
+# per deployment hostname on first request, so a brand-new deployment's first HTTPS
+# request stalls for a few seconds, and churning deployments can hit rate limits
+# (50 certs per registered domain per week). Prefer the DNS-01 wildcard config if
+# you have a DNS provider token.
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: llmpanel_llmpanel
+
+certificatesResolvers:
+  le:
+    acme:
+      email: __ACME_EMAIL__
+      storage: /etc/traefik/acme.json
+      httpChallenge:
+        entryPoint: web
+
+log:
+  level: INFO

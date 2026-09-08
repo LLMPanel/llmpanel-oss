@@ -1,0 +1,27 @@
+{
+  "name": "llmpanel",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.7.0",
+  "devDependencies": {
+    "turbo": "^2.8.10"
+  },
+  "dependencies": {
+    "@llmpanel/db": "workspace:*",
+    "@llmpanel/providers": "workspace:*",
+    "@llmpanel/shared": "workspace:*",
+    "@llmpanel/ui": "workspace:*"
+  }
+}

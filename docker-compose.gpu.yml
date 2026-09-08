@@ -1,0 +1,22 @@
+# Enabled by install.sh only when the host has a working NVIDIA setup.
+#
+# The API image is not a CUDA image, so it has no nvidia-smi of its own. The
+# NVIDIA container runtime injects the driver binaries at start; requesting the
+# "utility" capability is what makes `nvidia-smi` (and therefore /api/v1/system/gpu)
+# work inside the container.
+#
+# This reserves nothing exclusively — the vLLM containers the API provisions
+# still get the full GPUs.
+
+services:
+  api:
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
