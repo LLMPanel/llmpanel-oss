@@ -539,10 +539,15 @@ export const getConversations = async (c: Context) => {
       platformUsername: sql<string | null>`max(${channelMessages.platformUsername})`,
       messageCount: sql<number>`count(*)`,
       lastMessageAt: sql<number>`max(${channelMessages.createdAt})`,
+      // The outer column must be table-qualified by hand: Drizzle renders
+      // ${channelMessages.platformUserId} unqualified in a single-table select,
+      // and inside this subquery an unqualified name binds to m2 — the filter
+      // becomes always-true and every conversation previews the channel's
+      // newest message.
       lastMessagePreview: sql<string | null>`(
         select m2.content from channel_messages m2
         where m2.channel_connection_id = ${channelId}
-          and m2.platform_user_id = ${channelMessages.platformUserId}
+          and m2.platform_user_id = "channel_messages"."platform_user_id"
           and m2.direction != 'system'
         order by m2.rowid desc limit 1
       )`,

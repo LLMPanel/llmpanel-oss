@@ -112,6 +112,51 @@ JavaScript snippets, and keys you can scope, rate-limit and revoke.
   two-factor sign-in, optional GitHub and Google sign-in, and admin tools for
   managing users and sessions.
 
+### More screenshots
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/knowledge-base.png" alt="A knowledge base with four Markdown documents, chunked and embedded">
+      <br><sub><b>Knowledge base</b> — upload documents; they are chunked and embedded with a built-in model.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/agent.png" alt="An agent's overview: its OpenAI-compatible endpoint and configuration">
+      <br><sub><b>Agent</b> — a system prompt plus knowledge search, served at its own <code>/v1/agents/…</code> endpoint.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/api-keys.png" alt="Three API keys with scopes, rate limits and 24-hour request counts">
+      <br><sub><b>API keys</b> — scopes, per-minute and per-day limits, expiry and usage per key.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/request-log.png" alt="A request log entry open: status, latency, tokens, the key used, prompt and reply">
+      <br><sub><b>Request logs</b> — every gateway call with latency, tokens, the key that made it, and the prompt and reply.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/providers.png" alt="The connect-a-provider dialog listing RunPod, Vast.ai and providers coming soon">
+      <br><sub><b>Providers</b> — Local Docker is built in; connect RunPod or Vast.ai with your own key.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/model-registry.png" alt="The model registry with VRAM and file size per quantization">
+      <br><sub><b>Model registry</b> — LLMs and image models with VRAM needs per quantization.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/channel.png" alt="A Telegram channel backed by an agent, with its conversations">
+      <br><sub><b>Channels</b> — put a deployment or agent behind a Telegram, Discord, Slack or WhatsApp bot.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/alerts.png" alt="Slack and Discord alert channels with per-deployment rules">
+      <br><sub><b>Alerts</b> — notify Slack, Discord or Telegram when a deployment starts, goes live, fails or stops.</sub>
+    </td>
+  </tr>
+</table>
+
 ## Getting started
 
 ### 1. Check the requirements
