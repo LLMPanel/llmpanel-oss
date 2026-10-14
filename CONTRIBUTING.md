@@ -26,18 +26,25 @@ the approach before you write it.
 
 ## Getting set up
 
-Node 20+, pnpm 10, Docker.
+Node 20.9+, pnpm 10, Docker.
 
 ```bash
 pnpm install
-cp .env.example .env
-openssl rand -hex 32     # put this in BETTER_AUTH_SECRET
-openssl rand -hex 32     # and this in ENCRYPTION_KEY
-pnpm --filter @llmpanel/db db:migrate
+
+cat > apps/api/.env <<EOF
+BETTER_AUTH_SECRET=$(openssl rand -hex 32)
+ENCRYPTION_KEY=$(openssl rand -hex 32)
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+BETTER_AUTH_BASE_URL=http://localhost:8000
+EOF
+echo "HONO_API_URL=http://localhost:8000" > apps/web/.env.local
+
 pnpm dev
 ```
 
-The dashboard comes up on `:3000` and the API on `:8000`.
+The dashboard comes up on `:3000` and the API on `:8000`. The API applies
+database migrations itself on every start. The root `.env.example` configures the
+Docker Compose install, not local development.
 
 You do not need a GPU to work on most of the codebase. Set `GPU_AVAILABLE=false`
 and the panel reports "no GPU detected" instead of failing at deploy time. To

@@ -14,9 +14,10 @@ const nextConfig: NextConfig = {
   // compile them itself.
   transpilePackages: ["@llmpanel/shared"],
 
-  // Pin the workspace root to this monorepo. Otherwise Next infers it from a
-  // stray /Users/sree/package-lock.json and tries to scan the home directory,
-  // which fails with "Permission denied (os error 13)".
+  // Pin the workspace root to this monorepo. Otherwise Next infers it from any
+  // stray lockfile higher up (a package-lock.json in your home directory, say)
+  // and tries to scan from there, which fails with "Permission denied (os
+  // error 13)".
   turbopack: {
     root: path.join(__dirname, "..", ".."),
   },
