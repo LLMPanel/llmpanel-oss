@@ -1,3 +1,5 @@
+import { z } from "zod"
+
 export const env = {
   NODE_ENV: (process.env.NODE_ENV ?? "development") as
     | "development"
@@ -67,6 +69,24 @@ export const env = {
    */
   KMS_URL: process.env.KMS_URL || undefined,
   KMS_TOKEN: process.env.KMS_TOKEN || undefined,
+  /**
+   * The model registry (ModelRegistry.md) the deployable-model catalog comes
+   * from. Only the API talks to it — the dashboard reads it through
+   * /api/v1/registry/models — so pointing this at your own copy of the registry
+   * Worker changes the catalog for everyone on this install. Validated at
+   * startup. `||` not `??`: docker-compose passes "" when unset.
+   */
+  MODEL_REGISTRY_URL: z
+    .string()
+    .url("MODEL_REGISTRY_URL must be an absolute URL, e.g. https://registry.llmpanel.io")
+    .parse(process.env.MODEL_REGISTRY_URL || "https://registry.llmpanel.io")
+    .replace(/\/+$/, ""),
+  /**
+   * Log request and response bodies (redacted) for debugging. Off by default:
+   * bodies carry prompts, completions and freshly issued keys, and the default
+   * log line — method, path, status, duration — is enough to follow traffic.
+   */
+  LOG_REQUEST_BODIES: process.env.LOG_REQUEST_BODIES === "true",
   /**
    * Which RunPod REST API the RunPod provider talks to. v2 is the default;
    * "v1" is the escape hatch while v2 is in public beta. REST v1 retires

@@ -80,8 +80,11 @@ export function AgentTestTab({ agent }: { agent: DeploymentAgent }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
+  // Read by the stream callbacks, which outlive the render they started in.
   const activeThreadIdRef = useRef<string | null>(null)
-  activeThreadIdRef.current = activeThreadId
+  useEffect(() => {
+    activeThreadIdRef.current = activeThreadId
+  }, [activeThreadId])
 
   const hasKnowledge = agent.toolsEnabled.includes("knowledge_search")
   const modelLabel = agentModelLabel(agent, deployments)

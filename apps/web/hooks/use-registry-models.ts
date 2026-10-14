@@ -2,8 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react"
 
-const REGISTRY_BASE = "https://llmpanel-registry.chathelper.workers.dev"
-
 export interface RegistryQuantization {
   format: string
   vramRequiredGb: number
@@ -42,13 +40,21 @@ export function useRegistryModels(params?: { family?: string; search?: string; t
     setIsLoading(true)
     setError(null)
     try {
-      const url = new URL(`${REGISTRY_BASE}/models`)
-      if (params?.family) url.searchParams.set("family", params.family)
-      if (params?.search) url.searchParams.set("search", params.search)
-      if (params?.tag) url.searchParams.set("tag", params.tag)
+      // The API proxies the model registry (and keeps a cached copy of it), so
+      // the browser never talks to the registry directly.
+      const query = new URLSearchParams()
+      if (params?.family) query.set("family", params.family)
+      if (params?.search) query.set("search", params.search)
+      if (params?.tag) query.set("tag", params.tag)
+      const qs = query.toString()
 
-      const res = await globalThis.fetch(url.toString())
-      if (!res.ok) throw new Error("Failed to fetch models from registry")
+      const res = await globalThis.fetch(`/api/v1/registry/models${qs ? `?${qs}` : ""}`, {
+        credentials: "include",
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        throw new Error(body?.error ?? "Failed to fetch models from registry")
+      }
       const data = (await res.json()) as ModelsResponse
 
       // Merge in local image-generation models (not part of the external registry).

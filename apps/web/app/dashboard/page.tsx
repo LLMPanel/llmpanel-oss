@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Plus, AlertCircle, RefreshCw, ArrowUpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,11 @@ function CardSkeleton() {
   );
 }
 
+/** The query string only changes on navigation, which remounts the page. */
+function subscribeToNothing() {
+  return () => {};
+}
+
 export default function DashboardHome() {
   const { deployments, isLoading, error, refetch } = useDeployments();
   // null on self-hosted installs — every billing affordance below hides itself.
@@ -53,16 +58,30 @@ export default function DashboardHome() {
 
   // ?deploy=1&provider=<id>&gpu=<model> — Deploy CTA from the instances page
   // opens the wizard with that provider selected and the GPU search prefilled.
+  // The server has no URL, so the query is read as an external store: the
+  // first render matches the server's, and the link applies on the next one.
+  const search = useSyncExternalStore(
+    subscribeToNothing,
+    () => window.location.search,
+    () => "",
+  );
+  const [handledSearch, setHandledSearch] = useState("");
+  if (search !== handledSearch) {
+    setHandledSearch(search);
+    const params = new URLSearchParams(search);
+    if (params.get("deploy") === "1") {
+      setDeployPrefill({
+        providerId: params.get("provider"),
+        gpu: params.get("gpu"),
+      });
+      setModalOpen(true);
+    }
+  }
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("deploy") !== "1") return;
-    setDeployPrefill({
-      providerId: params.get("provider"),
-      gpu: params.get("gpu"),
-    });
-    setModalOpen(true);
-    window.history.replaceState(null, "", "/dashboard");
-  }, []);
+    if (new URLSearchParams(search).get("deploy") === "1") {
+      window.history.replaceState(null, "", "/dashboard");
+    }
+  }, [search]);
 
   const hasDeployments = deployments.length > 0;
 

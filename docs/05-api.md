@@ -10,6 +10,7 @@ Session Protected
 ├── GET    /api/v1/models
 ├── GET    /api/v1/models/:id
 ├── GET    /api/v1/models/:id/compatibility
+├── GET    /api/v1/registry/models     ← model registry catalog (proxied, cached 5 min)
 ├── GET    /api/v1/providers
 ├── POST   /api/v1/providers
 ├── GET    /api/v1/providers/:id

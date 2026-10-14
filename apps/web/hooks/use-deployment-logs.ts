@@ -10,12 +10,19 @@ export function useDeploymentLogs(deploymentId: string, externalId: string | nul
   const [error, setError] = useState<string | null>(null)
   const sseRef = useRef<EventSource | null>(null)
 
-  useEffect(() => {
+  // Clear the log when the deployment loses its container. Done during render,
+  // when the input changes, rather than synchronously inside the effect.
+  const [trackedExternalId, setTrackedExternalId] = useState(externalId)
+  if (externalId !== trackedExternalId) {
+    setTrackedExternalId(externalId)
     if (!externalId) {
       setLines([])
       setIsConnected(false)
-      return
     }
+  }
+
+  useEffect(() => {
+    if (!externalId) return
 
     const sse = new EventSource(`/api/v1/deployments/${deploymentId}/logs`)
     sseRef.current = sse

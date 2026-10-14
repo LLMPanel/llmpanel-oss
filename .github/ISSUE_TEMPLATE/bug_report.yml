@@ -50,6 +50,7 @@ body:
     attributes:
       label: Logs
       description: >
-        From `docker logs llmpanel-api-1 --tail 100`. The API logs request
-        bodies — redact your API keys and provider credentials before pasting.
+        From `docker logs llmpanel-api-1 --tail 100`. By default the API logs
+        one line per request. If you turned on LOG_REQUEST_BODIES, check for
+        prompts and anything sensitive before pasting.
       render: shell

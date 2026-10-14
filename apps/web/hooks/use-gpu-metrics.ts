@@ -50,12 +50,22 @@ export interface GpuMetrics {
 export function useGpuMetrics(deploymentId: string, status: string) {
   const [metrics, setMetrics] = useState<GpuMetrics | null>(null)
   const [capabilities, setCapabilities] = useState<MetricsCapabilities | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(status === "running")
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Follow the inputs during render rather than synchronously inside the
+  // effect: drop stale metrics when the deployment stops, and show loading
+  // whenever polling (re)starts.
+  const pollKey = `${deploymentId}:${status}`
+  const [trackedPollKey, setTrackedPollKey] = useState(pollKey)
+  if (pollKey !== trackedPollKey) {
+    setTrackedPollKey(pollKey)
+    if (status === "running") setIsLoading(true)
+    else setMetrics(null)
+  }
 
   useEffect(() => {
     if (status !== "running") {
-      setMetrics(null)
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
         intervalRef.current = null
@@ -84,7 +94,6 @@ export function useGpuMetrics(deploymentId: string, status: string) {
       }
     }
 
-    setIsLoading(true)
     void fetchMetrics()
     intervalRef.current = setInterval(fetchMetrics, 5000)
 

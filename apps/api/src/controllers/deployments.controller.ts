@@ -14,59 +14,24 @@ import { env } from "../env"
 import { generateImages, type ImageGenBody } from "../services/image-gen.service"
 import { getWorkspaceId } from "../lib/workspace-context"
 import { checkDeploymentAllowed, reportDeploymentUsage } from "../services/billing.service"
-
-const REGISTRY_BASE = "https://llmpanel-registry.chathelper.workers.dev"
-
-interface RegistryModel {
-  id: string
-  name: string
-  slug: string
-  family: string
-  huggingfaceId: string
-  description: string
-  minVram: number
-  tags: string[]
-  // Optional serving overrides for non-LLM models (e.g. OCR/VLM).
-  modelType?: string | null
-  dockerImage?: string | null
-  extraArgs?: string | null
-  quantizations: Array<{
-    format: string
-    vramRequiredGb: number
-    huggingfaceId: string | null
-    fileSizeGb: number
-    recommended: boolean
-    notes: string
-  }>
-}
+import {
+  findRegistryModelByHuggingfaceId,
+  findRegistryModelBySlug,
+  getRegistryCatalog,
+  type RegistryModel,
+} from "../services/model-registry.service"
 
 async function fetchRegistryModel(slug: string): Promise<RegistryModel | null> {
   // Local image-generation models take priority — they aren't in the external registry.
   const local = findImageModelBySlug(slug)
   if (local) return local
-
-  try {
-    const res = await fetch(`${REGISTRY_BASE}/models/${encodeURIComponent(slug)}`)
-    if (!res.ok) return null
-    const data = (await res.json()) as { model: RegistryModel }
-    return data.model ?? null
-  } catch {
-    return null
-  }
+  return findRegistryModelBySlug(slug)
 }
 
 async function fetchRegistryModelByHfId(huggingfaceId: string): Promise<RegistryModel | null> {
   const local = findImageModelByHfId(huggingfaceId)
   if (local) return local
-
-  try {
-    const res = await fetch(`${REGISTRY_BASE}/models?search=${encodeURIComponent(huggingfaceId)}`)
-    if (!res.ok) return null
-    const data = (await res.json()) as { models: RegistryModel[] }
-    return data.models.find((m) => m.huggingfaceId === huggingfaceId) ?? null
-  } catch {
-    return null
-  }
+  return findRegistryModelByHuggingfaceId(huggingfaceId)
 }
 
 async function fetchAllRegistryModels(): Promise<Map<string, RegistryModel>> {
@@ -74,17 +39,11 @@ async function fetchAllRegistryModels(): Promise<Map<string, RegistryModel>> {
   // Seed with local image models so they resolve in list views too.
   for (const m of IMAGE_MODELS) map.set(m.huggingfaceId, m)
 
-  try {
-    const res = await fetch(`${REGISTRY_BASE}/models`)
-    if (!res.ok) return map
-    const data = (await res.json()) as { models: RegistryModel[] }
-    for (const m of data.models) {
-      map.set(m.huggingfaceId, m)
-    }
-    return map
-  } catch {
-    return map
+  const catalog = await getRegistryCatalog().catch(() => null)
+  for (const m of catalog?.models ?? []) {
+    map.set(m.huggingfaceId, m)
   }
+  return map
 }
 
 function registryModelToFrontend(m: RegistryModel) {

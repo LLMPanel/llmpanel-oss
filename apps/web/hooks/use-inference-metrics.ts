@@ -51,9 +51,16 @@ export function useInferenceMetrics(
   const [metrics, setMetrics] = useState<InferenceMetrics | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Drop stale metrics when the deployment stops — during render, when the
+  // input changes, rather than synchronously inside the effect.
+  const [trackedRunning, setTrackedRunning] = useState(isRunning)
+  if (isRunning !== trackedRunning) {
+    setTrackedRunning(isRunning)
+    if (!isRunning) setMetrics(null)
+  }
+
   useEffect(() => {
     if (!isRunning) {
-      setMetrics(null)
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
         intervalRef.current = null

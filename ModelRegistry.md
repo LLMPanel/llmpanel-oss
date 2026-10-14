@@ -1,6 +1,12 @@
 # LLMPanel Registry API Endpoints
 
-Base URL: `https://llmpanel-registry.chathelper.workers.dev`
+Base URL: `https://registry.llmpanel.io`
+
+The panel never calls the registry from the browser: the API fetches the
+catalog, caches it for five minutes (and keeps serving the last good copy if the
+registry is down), and the dashboard reads it from `GET /api/v1/registry/models`
+with the same `family`, `search` and `tag` filters. To serve your own catalog,
+deploy a copy of the registry and set `MODEL_REGISTRY_URL` on the API.
 
 Implementation source:
 - Router and middleware: [`src/index.ts`](src/index.ts)
@@ -247,13 +253,13 @@ From [`fetch()`](src/index.ts:52):
 ## Quick curl examples
 
 ```bash
-curl https://llmpanel-registry.chathelper.workers.dev/
-curl "https://llmpanel-registry.chathelper.workers.dev/models"
-curl "https://llmpanel-registry.chathelper.workers.dev/models?family=llama"
-curl "https://llmpanel-registry.chathelper.workers.dev/models?search=llama"
-curl "https://llmpanel-registry.chathelper.workers.dev/models?tag=reasoning"
-curl "https://llmpanel-registry.chathelper.workers.dev/models/llama-3.1-8b"
-curl "https://llmpanel-registry.chathelper.workers.dev/families"
+curl https://registry.llmpanel.io/
+curl "https://registry.llmpanel.io/models"
+curl "https://registry.llmpanel.io/models?family=llama"
+curl "https://registry.llmpanel.io/models?search=llama"
+curl "https://registry.llmpanel.io/models?tag=reasoning"
+curl "https://registry.llmpanel.io/models/llama-3.1-8b"
+curl "https://registry.llmpanel.io/families"
 ```
 
 ---

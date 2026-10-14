@@ -317,7 +317,7 @@ export function GpuStep({
           <Progress value={fitPct} />
           {!vramFits && (
             <p className="text-xs text-destructive text-pretty">
-              This GPU can't fit the model. Pick one with more VRAM or increase the GPU count.
+              This GPU can&apos;t fit the model. Pick one with more VRAM or increase the GPU count.
             </p>
           )}
         </motion.div>

@@ -2,10 +2,10 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
-  useState,
-  useCallback,
+  useSyncExternalStore,
 } from "react"
 
 type Theme = "light" | "dark" | "system"
@@ -26,49 +26,66 @@ export function useTheme() {
   return useContext(ThemeContext)
 }
 
-function getSystemTheme(): "light" | "dark" {
-  if (typeof window === "undefined") return "light"
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light"
+const THEME_KEY = "llmpanel-theme"
+const DARK_QUERY = "(prefers-color-scheme: dark)"
+
+// The saved choice lives in localStorage and the OS preference in a media
+// query — both outside React, so both are read with useSyncExternalStore. The
+// server snapshot matches what the server rendered; the real value arrives on
+// the client's next render (the inline script in app/layout.tsx has already
+// set the class by then, so nothing flashes).
+const themeListeners = new Set<() => void>()
+
+// Used only when localStorage throws (storage disabled): the choice then lasts
+// until reload.
+let unsavedTheme: Theme = "light"
+
+function subscribeTheme(onChange: () => void) {
+  themeListeners.add(onChange)
+  window.addEventListener("storage", onChange)
+  return () => {
+    themeListeners.delete(onChange)
+    window.removeEventListener("storage", onChange)
+  }
+}
+
+function readSavedTheme(): Theme {
+  try {
+    const saved = localStorage.getItem(THEME_KEY)
+    return saved === "dark" || saved === "system" || saved === "light" ? saved : "light"
+  } catch {
+    return unsavedTheme
+  }
+}
+
+function subscribeSystemTheme(onChange: () => void) {
+  const mq = window.matchMedia(DARK_QUERY)
+  mq.addEventListener("change", onChange)
+  return () => mq.removeEventListener("change", onChange)
+}
+
+function readSystemDark(): boolean {
+  return window.matchMedia(DARK_QUERY).matches
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("light")
-  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("light")
+  const theme = useSyncExternalStore(subscribeTheme, readSavedTheme, () => "light" as const)
+  const systemDark = useSyncExternalStore(subscribeSystemTheme, readSystemDark, () => false)
+  const resolvedTheme: "light" | "dark" =
+    theme === "system" ? (systemDark ? "dark" : "light") : theme
 
-  const applyTheme = useCallback((t: Theme) => {
-    const resolved = t === "system" ? getSystemTheme() : t
-    setResolvedTheme(resolved)
-    document.documentElement.classList.toggle("dark", resolved === "dark")
-  }, [])
-
-  // Load saved theme on mount
   useEffect(() => {
-    const saved = localStorage.getItem("llmpanel-theme") as Theme | null
-    const initial = saved ?? "light"
-    setThemeState(initial)
-    applyTheme(initial)
-  }, [applyTheme])
+    document.documentElement.classList.toggle("dark", resolvedTheme === "dark")
+  }, [resolvedTheme])
 
-  // Listen for system theme changes
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)")
-    const handler = () => {
-      if (theme === "system") applyTheme("system")
+  const setTheme = useCallback((t: Theme) => {
+    try {
+      localStorage.setItem(THEME_KEY, t)
+    } catch {
+      unsavedTheme = t
     }
-    mq.addEventListener("change", handler)
-    return () => mq.removeEventListener("change", handler)
-  }, [theme, applyTheme])
-
-  const setTheme = useCallback(
-    (t: Theme) => {
-      setThemeState(t)
-      localStorage.setItem("llmpanel-theme", t)
-      applyTheme(t)
-    },
-    [applyTheme]
-  )
+    themeListeners.forEach((notify) => notify())
+  }, [])
 
   return (
     <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme }}>

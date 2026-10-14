@@ -14,7 +14,7 @@ const STAGE_ORDER = STAGES.map(s => s.key)
 export function DeploymentProgress({ deploymentId }: { deploymentId: string }) {
   const { status, progress, message, endpoint } = useDeploymentStatus(deploymentId)
 
-  const currentIndex = STAGE_ORDER.indexOf(status as any)
+  const currentIndex = (STAGE_ORDER as readonly string[]).indexOf(status)
 
   return (
     <div className="space-y-4 p-6 border rounded-lg">

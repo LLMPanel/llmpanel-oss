@@ -19,6 +19,9 @@ import { setupRoute } from "./routes/setup.route"
 import { waitlistRoute } from "./routes/waitlist.route"
 import { spendingsRoute } from "./routes/spendings.route"
 import { billingRoute } from "./routes/billing.route"
+import { registryRoute } from "./routes/registry.route"
+import { requestLogger } from "./middlewares/request-logger.middleware"
+import { redactText } from "./lib/redact"
 import { seedModels } from "./services/model.service"
 import { channelManager } from "./services/channel-manager.service"
 import { metricsCollector } from "./services/metrics-collector.service"
@@ -35,47 +38,6 @@ import { deployments } from "@llmpanel/db/schema"
 import { eq } from "drizzle-orm"
 
 const app = new Hono()
-const LOG_DIVIDER = "=".repeat(80)
-const MAX_LOG_BODY_LENGTH = 4000
-
-// Request bodies are logged below — never let submitted credentials (provider
-// API keys, TOTP secrets, bot tokens, webhook URLs) land in plaintext logs.
-const SENSITIVE_KEY_PATTERN = /apikey|api_key|secret|token|password|credential|authorization|webhookurl/i
-
-function redactSecrets(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactSecrets)
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) =>
-        SENSITIVE_KEY_PATTERN.test(k) && typeof v === "string" && v
-          ? [k, "[REDACTED]"]
-          : [k, redactSecrets(v)]
-      )
-    )
-  }
-  return value
-}
-
-function prettyBody(raw: string): string {
-  if (!raw) return "-"
-
-  const trimmed = raw.trim()
-  if (!trimmed) return "-"
-
-  try {
-    const parsed = JSON.parse(trimmed) as unknown
-    const formatted = JSON.stringify(redactSecrets(parsed), null, 2)
-    if (formatted.length > MAX_LOG_BODY_LENGTH) {
-      return `${formatted.slice(0, MAX_LOG_BODY_LENGTH)}\n... [truncated]`
-    }
-    return formatted
-  } catch {
-    if (trimmed.length > MAX_LOG_BODY_LENGTH) {
-      return `${trimmed.slice(0, MAX_LOG_BODY_LENGTH)}\n... [truncated]`
-    }
-    return trimmed
-  }
-}
 
 // CORS — the app origin gets credentialed CORS; the waitlist endpoint is
 // called cross-origin by the static marketing site (llmpanel.io), so that one
@@ -97,54 +59,8 @@ app.use("*", (c, next) =>
   c.req.path.startsWith("/api/v1/waitlist") ? waitlistCors(c, next) : appCors(c, next)
 )
 
-// Log request/response details for every endpoint hit
-app.use("*", async (c, next) => {
-  const startedAt = Date.now()
-  const method = c.req.method
-  const path = c.req.path
-  const query = c.req.query()
-
-  let requestBody = ""
-  if (method !== "GET" && method !== "HEAD") {
-    const contentType = c.req.header("content-type") ?? ""
-    if (contentType.includes("application/json") || contentType.includes("text/")) {
-      try {
-        requestBody = await c.req.raw.clone().text()
-      } catch {
-        requestBody = "[unreadable request body]"
-      }
-    }
-  }
-
-  await next()
-
-  const durationMs = Date.now() - startedAt
-  const status = c.res.status
-
-  let responseBody = ""
-  try {
-    responseBody = await c.res.clone().text()
-  } catch {
-    responseBody = "[unreadable response body]"
-  }
-
-  const timestamp = new Date().toISOString()
-  const queryString = Object.keys(query).length > 0
-    ? JSON.stringify(query, null, 2)
-    : "-"
-
-  console.log(LOG_DIVIDER)
-  console.log(`[API] ${method} ${path}`)
-  console.log(`time      : ${timestamp}`)
-  console.log(`status    : ${status}`)
-  console.log(`duration  : ${durationMs}ms`)
-  console.log(`query     : ${queryString}`)
-  console.log("request   :")
-  console.log(prettyBody(requestBody))
-  console.log("response  :")
-  console.log(prettyBody(responseBody))
-  console.log(LOG_DIVIDER)
-})
+// One line per request; redacted bodies only with LOG_REQUEST_BODIES=true.
+app.use("*", requestLogger)
 
 // ── Per-deployment domain routing ───────────────────────────────────
 // Requests arriving on a deployment subdomain (e.g. qwen3-ab12cd34.llmpanel.local)
@@ -221,6 +137,7 @@ app.route("/api/v1/alerts", alertsRoute)
 app.route("/api/v1/backups", backupRoute)
 app.route("/api/v1/spendings", spendingsRoute)
 app.route("/api/v1/billing", billingRoute)
+app.route("/api/v1/registry", registryRoute)
 
 // Public: serve generated image files (no auth — random UUID filenames)
 app.route("/api/v1/images", imagesRoute)
@@ -232,6 +149,18 @@ app.route("/v1", gatewayRoute)
 app.get("/health", (c) => c.json({ status: "ok" }))
 
 app.notFound((c) => c.json({ error: "Route not found" }, 404))
+
+// Hono's default handler console.errors the raw error object. An SDK error
+// carries the request it failed on, Authorization header included, so a
+// failed payment-provider call printed a live access token. Same responses as
+// the default; only the log line changes.
+app.onError((err, c) => {
+  if ("getResponse" in err && typeof err.getResponse === "function") {
+    return err.getResponse() as Response
+  }
+  console.error(redactText(err.stack ?? `${err.name}: ${err.message}`))
+  return c.text("Internal Server Error", 500)
+})
 
 const PORT = Number(process.env.PORT ?? 8000)
 

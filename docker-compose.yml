@@ -52,6 +52,11 @@ services:
       # publish their ports on the host, so reach them via the gateway address.
       DEPLOYMENT_HOST: host.docker.internal
 
+      # Deployable-model catalog. Empty means the public registry.
+      MODEL_REGISTRY_URL: ${MODEL_REGISTRY_URL:-}
+      # Debug only: also log redacted request/response bodies.
+      LOG_REQUEST_BODIES: ${LOG_REQUEST_BODIES:-false}
+
       HF_TOKEN: ${HF_TOKEN:-}
       # Transactional email (sign-up OTP, 2FA OTP, password reset). Either
       # Resend or Cloudflare Email Sending; EMAIL_PROVIDER forces one when both
