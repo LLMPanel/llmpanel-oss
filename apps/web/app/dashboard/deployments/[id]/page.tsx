@@ -14,6 +14,7 @@ import { InferenceStats } from "@/components/deployments/inference-stats"
 import { RequestsChart, TokensChart } from "@/components/deployments/inference-charts"
 import { LogsPanel } from "@/components/deployments/logs-panel"
 import { SectionHeader } from "@/components/deployments/section-header"
+import { isCpuEngine } from "@/lib/inference-engine"
 
 export default function DeploymentOverviewPage({
   params,
@@ -44,6 +45,7 @@ export default function DeploymentOverviewPage({
   const statusMessage = sseStatus.message ?? deployment.statusMessage ?? ""
   const endpoint = sseStatus.endpoint ?? deployment.endpoint ?? null
   const isRunning = status === "running"
+  const onCpu = isCpuEngine(deployment.inferenceEngine)
 
   return (
     <div className="space-y-8">
@@ -104,12 +106,27 @@ export default function DeploymentOverviewPage({
           to repeat now live in the Traffic strip above. */}
       {isRunning &&
         inferenceMetrics &&
+        !onCpu &&
         !(capabilities?.gpuUtilization ?? (gpuMetrics != null && gpuMetrics.gpus.length > 0)) && (
           <section className="space-y-3">
             <SectionHeader title="GPU" />
             <GpuTelemetryNote providerType={deployment.providerType} />
           </section>
         )}
+
+      {/* CPU deployments (llama.cpp on a host with no GPU): nothing GPU to
+          show, and their CPU and memory use live on the metrics page. */}
+      {isRunning && onCpu && (
+        <section className="space-y-3">
+          <SectionHeader
+            title="Hardware"
+            viewAll={{ href: `${base}/metrics`, label: "CPU & memory" }}
+          />
+          <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+            Runs on this host&apos;s CPU with llama.cpp — there&apos;s no GPU on this host.
+          </p>
+        </section>
+      )}
 
       {/* Recent container logs preview */}
       {/*<section className="space-y-3">

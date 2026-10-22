@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { Deployment } from "@/hooks/use-deployments"
+import { engineLabel, isCpuEngine } from "@/lib/inference-engine"
 
 /** Settings-style row: label left, value right. */
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -118,11 +119,11 @@ export function SettingsGeneralCard({
       <Row label="Model">
         <code className="font-mono text-[13px]">{deployment.model?.slug ?? deployment.huggingfaceId}</code>
       </Row>
-      <Row label="GPU">{deployment.gpuType}</Row>
+      <Row label={isCpuEngine(deployment.inferenceEngine) ? "Hardware" : "GPU"}>{deployment.gpuType}</Row>
       <Row label="Quantization">
         <span className="font-mono uppercase">{deployment.quantization}</span>
       </Row>
-      <Row label="Engine">{deployment.inferenceEngine.toUpperCase()}</Row>
+      <Row label="Engine">{engineLabel(deployment.inferenceEngine)}</Row>
       <Row label="Created">
         <span className="tabular-nums">
           {new Date(deployment.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}

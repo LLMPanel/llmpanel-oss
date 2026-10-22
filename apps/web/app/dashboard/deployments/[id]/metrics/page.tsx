@@ -94,6 +94,10 @@ export default function MetricsPage({
   const showPower = capabilities?.power ?? false
   const showClocks = capabilities?.clocks ?? false
   const showContainer = capabilities?.container ?? false
+  // Unknown capabilities keep the GPU charts; a CPU (llama.cpp) deployment
+  // reports neither, so it gets the container chart alone.
+  const showGpuUtil = capabilities?.gpuUtilization ?? true
+  const showVram = capabilities?.vram ?? true
 
   return (
     <div className="space-y-6">
@@ -131,8 +135,8 @@ export default function MetricsPage({
 
       {/* History charts */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <GpuUtilHistoryChart data={points} />
-        <VramHistoryChart data={points} />
+        {showGpuUtil && <GpuUtilHistoryChart data={points} />}
+        {showVram && <VramHistoryChart data={points} />}
         {showTemperature && <TemperatureHistoryChart data={points} />}
         {showPower && <PowerHistoryChart data={points} />}
         {showClocks && <ClocksHistoryChart data={points} />}

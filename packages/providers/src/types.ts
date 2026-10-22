@@ -9,7 +9,8 @@ export const DeployModelInputSchema = z.object({
   cloudType: z.enum(["secure", "community"]).nullish(),
   gpuCount: z.number().min(1).default(1),
   quantization: z.enum(["fp16", "int8", "int4", "gguf"]),
-  inferenceEngine: z.enum(["vllm", "sglang"]),
+  // llamacpp = CPU inference on GGUF weights, for local hosts without a GPU.
+  inferenceEngine: z.enum(["vllm", "sglang", "llamacpp"]),
   maxModelLen: z.number().default(4096),
   kvCacheEnabled: z.boolean().default(true),
   // DFlash speculative decoding — only takes effect when a drafter is set.
@@ -99,6 +100,9 @@ export type MetricsCapabilities = z.infer<typeof MetricsCapabilitiesSchema>
 // structural typing lets their implementations omit the parameter entirely.
 export interface MetricsContext {
   metricsToken?: string | null
+  /** The deployment's engine. The local provider reads it: a llama.cpp
+   *  container has no GPU, so its metrics come from Docker, not nvidia-smi. */
+  inferenceEngine?: string | null
 }
 
 export interface IGPUProvider {

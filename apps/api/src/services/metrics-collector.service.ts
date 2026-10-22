@@ -52,7 +52,7 @@ class MetricsCollector {
     try {
       const running = await db.query.deployments.findMany({
         where: and(eq(deployments.status, "running"), isNotNull(deployments.externalId)),
-        columns: { id: true, externalId: true, providerType: true, providerConnectionId: true, metricsToken: true },
+        columns: { id: true, externalId: true, providerType: true, providerConnectionId: true, metricsToken: true, inferenceEngine: true },
       })
 
       await Promise.allSettled(running.map((dep) => this.sampleDeployment(dep)))
@@ -69,11 +69,12 @@ class MetricsCollector {
     providerType: string
     providerConnectionId: string | null
     metricsToken: string | null
+    inferenceEngine: string
   }): Promise<void> {
     if (!dep.externalId) return
     try {
       const provider = await resolveProvider(dep)
-      const metricsCtx = { metricsToken: dep.metricsToken }
+      const metricsCtx = { metricsToken: dep.metricsToken, inferenceEngine: dep.inferenceEngine }
 
       // Providers with no metrics API (Vast.ai, Hot Aisle, ...) would throw
       // every tick — skip them outright.

@@ -350,3 +350,5 @@ function formatDuration(ms: number): string {
 | downloading | Model not found on HF | "Model ID not found on HuggingFace" |
 | loading | OOM (VRAM) | "Out of GPU memory — try a smaller quantization" |
 | health_check | vLLM crashed | "Model failed to start — check logs for details" |
+| create (CPU host) | Model has no GGUF build | "<model> has no CPU (GGUF) build yet — this host has no GPU" |
+| create (CPU host) | Not enough free RAM | "<model> needs about N GB of RAM on the CPU; this host has M GB free" |

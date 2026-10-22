@@ -7,6 +7,16 @@ import type { DeployModelInput } from "../types"
 const PORT_RANGE_START = 39000
 const PORT_RANGE_END = 39999
 
+/** CPU inference server. Pinned: the rolling `server` tag is rebuilt several times a day. */
+const LLAMACPP_IMAGE = "ghcr.io/ggml-org/llama.cpp:server-b11515"
+/** The GGUF quant llama.cpp pulls. Every registry GGUF repo ships it, and the
+ *  registry's gguf `fileSizeGb` (which the RAM fit check reads) is its size. */
+const LLAMACPP_QUANT = "Q4_K_M"
+/** Named volume shared by every llama.cpp container, so a restart or a
+ *  redeploy of the same model reuses the weights instead of downloading them. */
+const LLAMACPP_CACHE_VOLUME = "llmpanel-llamacpp-cache"
+const LLAMACPP_CACHE_DIR = "/models"
+
 /**
  * Host address at which the API can reach ports published by deployment containers.
  *
@@ -82,6 +92,48 @@ export function buildContainerConfig(
         PortBindings: { "8000/tcp": [{ HostPort: String(hostPort) }] },
         RestartPolicy: { Name: "unless-stopped" },
         ShmSize: 8 * 1024 * 1024 * 1024, // 8GB — diffusion pipelines spike on load
+      },
+    }
+  }
+
+  // ── CPU inference (hosts without a GPU) ──────────────────────────────
+  // llama.cpp serves GGUF weights on the CPU behind the same /health +
+  // OpenAI-compatible API on :8000. huggingfaceId is the GGUF repo; the server
+  // downloads the quant itself on first start.
+  if (input.inferenceEngine === "llamacpp") {
+    return {
+      name: `llmpanel-${input.deploymentId}`,
+      Image: LLAMACPP_IMAGE,
+      Cmd: [
+        "--hf-repo", `${input.huggingfaceId}:${LLAMACPP_QUANT}`,
+        "--port", "8000",
+        "--ctx-size", String(input.maxModelLen),
+        "--alias", input.huggingfaceId,
+        // Text only: some repos also ship a vision projector, which would add
+        // to both the download and RAM the fit check never counted.
+        "--no-mmproj",
+        // Stream a thinking model's thoughts as ordinary content, as vLLM does
+        // without a reasoning parser. Split out into reasoning_content, they
+        // never reach the panel's chat, which then sits on "Generating" for
+        // the whole think — minutes, at CPU speed.
+        "--reasoning-format", "none",
+      ],
+      Env: [
+        // Via env rather than --host: the image already sets it, and the flag
+        // makes the server open every log with an override warning.
+        "LLAMA_ARG_HOST=0.0.0.0",
+        `LLAMA_CACHE=${LLAMACPP_CACHE_DIR}`,
+        // Only when set: GGUF repos are public, and an empty token is still a token.
+        ...(process.env.HF_TOKEN ? [`HF_TOKEN=${process.env.HF_TOKEN}`] : []),
+        ...(input.envVars ? Object.entries(input.envVars).map(([k, v]) => `${k}=${v}`) : []),
+      ],
+      ExposedPorts: { "8000/tcp": {} },
+      // The image's own healthcheck probes :8080, where nothing listens here.
+      Healthcheck: { Test: ["CMD", "curl", "-f", "http://localhost:8000/health"] },
+      HostConfig: {
+        Binds: [`${LLAMACPP_CACHE_VOLUME}:${LLAMACPP_CACHE_DIR}`],
+        PortBindings: { "8000/tcp": [{ HostPort: String(hostPort) }] },
+        RestartPolicy: { Name: "unless-stopped" },
       },
     }
   }

@@ -20,6 +20,8 @@ export interface RegistryModel {
   description: string | null
   minVram: number
   tags: string[]
+  /** Unset for text LLMs; "vlm" / "ocr" / "image-generation" otherwise. */
+  modelType?: string | null
   quantizations: RegistryQuantization[]
 }
 

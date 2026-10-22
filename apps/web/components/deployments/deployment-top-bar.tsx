@@ -23,6 +23,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
 import { StatusBadge } from "./status-badge"
 import type { Deployment } from "@/hooks/use-deployments"
+import { engineLabel } from "@/lib/inference-engine"
 
 interface DeploymentTopBarProps {
   deployment: Deployment
@@ -173,7 +174,7 @@ export function DeploymentTopBar({
         <Sep />
         <span className="uppercase">{deployment.quantization}</span>
         <Sep />
-        <span className="uppercase">{deployment.inferenceEngine}</span>
+        <span className="uppercase">{engineLabel(deployment.inferenceEngine)}</span>
         {deployment.runningFor && (
           <>
             <Dot />

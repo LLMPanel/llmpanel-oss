@@ -1,6 +1,18 @@
 import Docker from "dockerode"
-import type { IGPUProvider, DeployModelInput, DeploymentInfo, GPUMetrics, MetricsCapabilities } from "../types"
+import type {
+  IGPUProvider,
+  DeployModelInput,
+  DeploymentInfo,
+  GPUMetrics,
+  MetricsCapabilities,
+  MetricsContext,
+} from "../types"
 import { allocateHostPort, buildContainerConfig, deploymentEndpoint } from "./docker.client"
+
+/** llama.cpp containers run on the CPU: no nvidia-smi inside, nothing GPU to report. */
+function isCpuDeployment(ctx?: MetricsContext): boolean {
+  return ctx?.inferenceEngine === "llamacpp"
+}
 
 export class LocalProvider implements IGPUProvider {
   private docker: Docker
@@ -94,7 +106,20 @@ export class LocalProvider implements IGPUProvider {
     return buffer.toString("utf8").split("\n").filter((l: string) => l.trim())
   }
 
-  getMetricsCapabilities(): MetricsCapabilities {
+  getMetricsCapabilities(ctx?: MetricsContext): MetricsCapabilities {
+    if (isCpuDeployment(ctx)) {
+      return {
+        gpuUtilization: false,
+        vram: false,
+        temperature: false,
+        power: false,
+        clocks: false,
+        perGpu: false,
+        container: true,
+        uptime: true,
+        costPerHour: false,
+      }
+    }
     return {
       gpuUtilization: true,
       vram: true,
@@ -108,7 +133,9 @@ export class LocalProvider implements IGPUProvider {
     }
   }
 
-  async getMetrics(externalId: string): Promise<GPUMetrics> {
+  async getMetrics(externalId: string, ctx?: MetricsContext): Promise<GPUMetrics> {
+    if (isCpuDeployment(ctx)) return this.getCpuMetrics(externalId)
+
     // Read detailed metrics from nvidia-smi inside container
     const container = this.docker.getContainer(externalId)
     const queryFields = [
@@ -182,6 +209,46 @@ export class LocalProvider implements IGPUProvider {
       temperatureCelsius: Math.round(gpus.reduce((s, g) => s + g.temperatureCelsius, 0) / gpus.length),
       powerDrawWatts: gpus.reduce((s, g) => s + g.powerDrawWatts, 0),
       gpus,
+    }
+  }
+
+  /**
+   * CPU and memory of a llama.cpp container, from the Docker daemon. CPU is
+   * the container's share of the whole host (0–100), not `docker stats`'
+   * per-core figure that runs to 100 × cores.
+   */
+  private async getCpuMetrics(externalId: string): Promise<GPUMetrics> {
+    const container = this.docker.getContainer(externalId)
+    // A one-shot read still carries the previous sample in precpu_stats.
+    const [stats, info] = await Promise.all([container.stats({ stream: false }), container.inspect()])
+
+    const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage
+    const systemDelta = stats.cpu_stats.system_cpu_usage - (stats.precpu_stats.system_cpu_usage ?? 0)
+    const cpuPercent = systemDelta > 0 && cpuDelta > 0 ? (cpuDelta / systemDelta) * 100 : 0
+
+    // Page cache counts toward `usage` but the kernel reclaims it first —
+    // `docker stats` subtracts it too. cgroup v2 calls it inactive_file.
+    const memStats: Partial<Record<string, number>> = stats.memory_stats.stats ?? {}
+    const inactiveFile = memStats.inactive_file ?? memStats.total_inactive_file ?? 0
+    const memUsed = Math.max(0, (stats.memory_stats.usage ?? 0) - inactiveFile)
+    const memLimit = stats.memory_stats.limit ?? 0
+    const memPercent = memLimit > 0 ? (memUsed / memLimit) * 100 : 0
+
+    const startedAt = Date.parse(info.State.StartedAt)
+    const uptimeSeconds =
+      info.State.Running && !Number.isNaN(startedAt) ? Math.round((Date.now() - startedAt) / 1000) : 0
+
+    return {
+      gpuCount: 0,
+      gpuUtilization: 0,
+      vramUsedGb: 0,
+      vramTotalGb: 0,
+      temperatureCelsius: null,
+      powerDrawWatts: null,
+      containerCpuPercent: Math.round(cpuPercent * 10) / 10,
+      containerMemoryPercent: Math.round(memPercent * 10) / 10,
+      uptimeSeconds,
+      gpus: [],
     }
   }
 

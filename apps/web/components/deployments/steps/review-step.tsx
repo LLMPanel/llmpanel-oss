@@ -23,6 +23,8 @@ interface ReviewStepProps {
   dflashEnabled: boolean
   stats: ProviderStats | null
   statsLoading: boolean
+  /** Set on a host with no GPU: the model runs on the CPU and needs this much RAM. */
+  cpuRamGb: number | null
 }
 
 function formatUsd(value: number | null): string {
@@ -42,25 +44,38 @@ export function ReviewStep({
   dflashEnabled,
   stats,
   statsLoading,
+  cpuRamGb,
 }: ReviewStepProps) {
   const drafter = resolveDflashDrafter(selectedModel?.huggingfaceId)
   const gpuLabel = selectedOffer
     ? `${gpuCount > 1 ? `${gpuCount}× ` : ""}${selectedOffer.displayName}`
     : "—"
 
-  const rows: Array<{ icon: LucideIcon; label: string; value: string; mono?: boolean }> = [
+  type Row = { icon: LucideIcon; label: string; value: string; mono?: boolean }
+  const base: Row[] = [
     { icon: Server, label: "Provider", value: selectedProvider?.name ?? "—" },
     { icon: Boxes, label: "Model", value: selectedModel?.name ?? "—" },
-    { icon: Layers, label: "Quantization", value: selectedQuantization ? selectedQuantization.toUpperCase() : "—", mono: true },
-    { icon: Cpu, label: "GPU", value: gpuLabel },
-    { icon: Zap, label: "KV cache", value: kvCacheEnabled ? "Enabled" : "Disabled" },
-    {
-      icon: Zap,
-      label: "DFlash 2",
-      value: drafter ? (dflashEnabled ? drafter.model : "Disabled") : "No drafter",
-      mono: !!drafter && dflashEnabled,
-    },
   ]
+  // llama.cpp always caches prompts and has no DFlash; only the RAM matters.
+  const rows: Row[] =
+    cpuRamGb != null
+      ? [
+          ...base,
+          { icon: Layers, label: "Quantization", value: "GGUF Q4_K_M", mono: true },
+          { icon: Cpu, label: "Hardware", value: `CPU · llama.cpp · ~${cpuRamGb} GB RAM` },
+        ]
+      : [
+          ...base,
+          { icon: Layers, label: "Quantization", value: selectedQuantization ? selectedQuantization.toUpperCase() : "—", mono: true },
+          { icon: Cpu, label: "GPU", value: gpuLabel },
+          { icon: Zap, label: "KV cache", value: kvCacheEnabled ? "Enabled" : "Disabled" },
+          {
+            icon: Zap,
+            label: "DFlash 2",
+            value: drafter ? (dflashEnabled ? drafter.model : "Disabled") : "No drafter",
+            mono: !!drafter && dflashEnabled,
+          },
+        ]
 
   return (
     <motion.div variants={stepContainer} initial="hidden" animate="show" className="space-y-4">

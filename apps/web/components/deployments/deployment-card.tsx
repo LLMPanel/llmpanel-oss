@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card"
 import { IN_PROGRESS_STATUSES, statusLabel } from "./status-badge"
 import { cn } from "@/lib/utils"
 import type { Deployment } from "@/hooks/use-deployments"
+import { engineLabel } from "@/lib/inference-engine"
 
 /**
  * Fixed-height flex column so every card in the grid is identical and the
@@ -185,7 +186,7 @@ export function DeploymentCard({ deployment }: { deployment: Deployment }) {
             <span className="text-muted-foreground/40">/</span>
             <span className="shrink-0 uppercase">{deployment.quantization}</span>
             <span className="text-muted-foreground/40">/</span>
-            <span className="shrink-0 uppercase">{deployment.inferenceEngine}</span>
+            <span className="shrink-0 uppercase">{engineLabel(deployment.inferenceEngine)}</span>
           </span>
           {deployment.costPerHour != null && (
             <span className="shrink-0 tabular-nums text-foreground/65">

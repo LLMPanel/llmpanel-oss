@@ -39,7 +39,8 @@ const DeployInputSchema = z.object({
   providerOfferId: z.string().optional(),
   gpuCount: z.number().int().min(1).optional(),
   quantization: z.enum(["fp16", "int8", "int4", "gguf"]),
-  inferenceEngine: z.enum(["vllm", "sglang"]).default("vllm"),
+  // A local deploy on a host with no GPU always runs llamacpp, whatever is sent.
+  inferenceEngine: z.enum(["vllm", "sglang", "llamacpp"]).default("vllm"),
   kvCacheEnabled: z.boolean().optional(),
   dflashEnabled: z.boolean().optional(),
   envVars: z.record(z.string(), z.string()).optional(),

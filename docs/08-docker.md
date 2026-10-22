@@ -98,8 +98,23 @@ one catch-all.
 **GPU detection happens on the host.**
 The API image is not a CUDA image. `install.sh` probes the host (`nvidia-smi`,
 the Docker runtime registration, and a real `docker run --gpus all`) and writes
-`GPU_AVAILABLE`. When false, the panel says "no GPU detected — cloud providers
-only" instead of failing deep inside `docker run` at deploy time.
+`GPU_AVAILABLE`. When false, Local Docker deployments run on the CPU instead of
+failing deep inside `docker run --gpus` at deploy time — see below.
+
+**No GPU means llama.cpp on the CPU.**
+On a host without a GPU, `GET /api/v1/system/gpu` also returns the host's CPU
+cores and free RAM, and the wizard's third step becomes "CPU & RAM". The API
+stores the deployment with `inferenceEngine: "llamacpp"`, `gpuType: "cpu"` and
+the model's GGUF repo (the registry's `gguf` quantization `huggingfaceId`) as
+`huggingfaceId`. The container is `ghcr.io/ggml-org/llama.cpp:server-<build>`,
+pinned in `docker.client.ts`; it pulls the repo's Q4_K_M file on first start
+into the shared `llmpanel-llamacpp-cache` volume. Only models whose `gguf` repo
+name says GGUF can be picked, and the API refuses a deploy whose estimated RAM
+(`estimateCpuRamGb` in `@llmpanel/shared`) exceeds the host's free RAM. Metrics
+come from `docker stats` (CPU %, memory %), not `nvidia-smi`. The server runs
+with `--reasoning-format none`, so a thinking model streams its thoughts as
+ordinary content, as vLLM does; the panel's chat has no `reasoning_content`
+support and would otherwise show nothing until the thinking ends.
 
 ## Key Architecture Decisions
 

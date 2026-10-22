@@ -6,7 +6,7 @@ interface DeployInput {
   providerId: string
   gpuType: string
   quantization: "fp16" | "int8" | "int4" | "gguf"
-  inferenceEngine: "vllm" | "sglang"
+  inferenceEngine: "vllm" | "sglang" | "llamacpp"
 }
 
 export function useDeployModel() {

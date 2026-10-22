@@ -156,7 +156,7 @@ export interface CreateDeploymentInput {
   cloudType?: "secure" | "community"
   gpuCount?: number
   quantization: "fp16" | "int8" | "int4" | "gguf"
-  inferenceEngine?: "vllm" | "sglang"
+  inferenceEngine?: "vllm" | "sglang" | "llamacpp"
   kvCacheEnabled?: boolean
   dflashEnabled?: boolean
 }

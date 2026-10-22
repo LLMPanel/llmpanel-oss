@@ -79,7 +79,7 @@ export async function provisionDeployment(deploymentId: string): Promise<void> {
       cloudType: deployment.cloudType as "secure" | "community" | null,
       gpuCount: deployment.gpuCount ?? 1,
       quantization: deployment.quantization as "fp16" | "int8" | "int4" | "gguf",
-      inferenceEngine: deployment.inferenceEngine as "vllm" | "sglang",
+      inferenceEngine: deployment.inferenceEngine as "vllm" | "sglang" | "llamacpp",
       kvCacheEnabled: deployment.kvCacheEnabled ?? true,
       dflashEnabled: deployment.dflashEnabled ?? true,
       dflashDraftModel: deployment.dflashDraftModel ?? undefined,
@@ -148,8 +148,9 @@ export async function provisionDeployment(deploymentId: string): Promise<void> {
       }
     }
 
-    // STAGE 3: LOADING INTO VRAM
-    await updateStatus(deploymentId, "loading", "Loading model into GPU memory...", 75)
+    // STAGE 3: LOADING INTO VRAM (or RAM, for llama.cpp on the CPU)
+    const memory = deployment.inferenceEngine === "llamacpp" ? "memory" : "GPU memory"
+    await updateStatus(deploymentId, "loading", `Loading model into ${memory}...`, 75)
     if (!env.MOCK_DEPLOYMENT) {
       await new Promise(r => setTimeout(r, 15000))
     }
@@ -332,8 +333,12 @@ async function trackDownloadProgress(
 
     const match = log.match(/(\d+)%/)
     if (match) await onProgress(parseInt(match[1]))
-    // vLLM prints this when fully loaded and ready
-    if (log.includes("Application startup complete") || log.includes("Uvicorn running")) {
+    // vLLM prints the first two when fully loaded and ready, llama.cpp the last
+    if (
+      log.includes("Application startup complete") ||
+      log.includes("Uvicorn running") ||
+      log.includes("listening on http")
+    ) {
       return
     }
   }

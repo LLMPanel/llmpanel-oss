@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { AnimatePresence, motion, type Variants } from "motion/react"
 import { Check, Cpu, Loader2, Rocket, ArrowLeft, ArrowRight } from "lucide-react"
+import { cpuQuantization, estimateCpuRamGb } from "@llmpanel/shared"
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,7 @@ import { useSystemGpu, mbToGb } from "@/hooks/use-system-gpu"
 import { ProviderStep } from "./steps/provider-step"
 import { ModelStep } from "./steps/model-step"
 import { GpuStep, isOfferUnavailable } from "./steps/gpu-step"
+import { CpuStep, cpuRamFits } from "./steps/cpu-step"
 import { ReviewStep } from "./steps/review-step"
 import { stepContainer, stepItem } from "./steps/motion"
 
@@ -47,6 +49,9 @@ const STEPS: Array<{ key: number; label: string; hint: string }> = [
   { key: 2, label: "GPU", hint: "Compute & VRAM" },
   { key: 3, label: "Review", hint: "Confirm & deploy" },
 ]
+
+/** Local Docker on a host with no GPU: step 3 sizes the model against RAM. */
+const CPU_STEPS = STEPS.map((s) => (s.key === 2 ? { ...s, label: "CPU & RAM", hint: "Cores & memory" } : s))
 
 const NAME_ADJECTIVES = [
   "hungry", "sleepy", "funky", "brave", "grumpy", "jolly", "sneaky", "cosmic",
@@ -155,7 +160,13 @@ export function CreateDeploymentModal({
     gpuCount
   )
 
-  const { detected, gpus, isLoading: localGpuLoading, error: localGpuError } = useSystemGpu()
+  const {
+    detected,
+    gpus,
+    cpu: hostCpu,
+    isLoading: localGpuLoading,
+    error: localGpuError,
+  } = useSystemGpu()
   const { models, isLoading: modelsLoading, error: modelsError } = useRegistryModels()
 
   useEffect(() => {
@@ -199,6 +210,16 @@ export function CreateDeploymentModal({
     selectedModel?.quantizations.find((q) => q.format === selectedQuantization) ?? null
 
   const requiredVram = selectedQuant?.vramRequiredGb ?? selectedModel?.minVram ?? 0
+
+  // No GPU on this host (the API only reports `cpu` then): Local Docker
+  // deployments run on the CPU with llama.cpp, sized against free RAM.
+  const cpuMode = selectedProvider?.providerType === "local" && hostCpu != null
+  const steps = cpuMode ? CPU_STEPS : STEPS
+  const cpuQuant = selectedModel ? cpuQuantization(selectedModel) : null
+  const requiredRamGb = cpuQuant
+    ? estimateCpuRamGb(cpuQuant.fileSizeGb ?? cpuQuant.vramRequiredGb)
+    : 0
+  const ramFits = !!hostCpu && cpuRamFits(hostCpu, requiredRamGb)
 
   const selectedOffer =
     allOffers.find((offer) => offer.id === selectedOfferId) ?? null
@@ -255,6 +276,11 @@ export function CreateDeploymentModal({
   }
 
   function canGoNext(): boolean {
+    if (cpuMode) {
+      if (step === 0) return !!selectedProvider
+      if (step === 1) return !!cpuQuant
+      return !!cpuQuant && ramFits
+    }
     if (step === 0) return !!selectedProvider
     if (step === 1) return !!selectedModel && !!selectedQuantization
     if (step === 2) return !!selectedOffer && vramFits && !selectedOfferUnavailable
@@ -278,7 +304,9 @@ export function CreateDeploymentModal({
     setSelectedModelId(modelId)
     const model = models.find((m) => m.id === modelId)
     if (!model) return
-    const recommended = model.quantizations.find((q) => q.recommended) ?? model.quantizations[0]
+    const recommended = cpuMode
+      ? cpuQuantization(model)
+      : (model.quantizations.find((q) => q.recommended) ?? model.quantizations[0])
     setSelectedQuantization(recommended?.format ?? "")
     // Reset GPU selection when model changes since VRAM requirement changes
     setSelectedOfferId("")
@@ -316,7 +344,26 @@ export function CreateDeploymentModal({
   }
 
   async function handleSubmit() {
-    if (!selectedProvider || !selectedOffer || !selectedModel || !selectedQuantization) return
+    if (!selectedProvider || !selectedModel) return
+    // CPU deploys have no GPU offer to pick; the API runs them on llama.cpp.
+    const target = cpuMode
+      ? cpuQuant && {
+          gpuType: "cpu",
+          gpuCount: 1,
+          quantization: "gguf" as const,
+          inferenceEngine: "llamacpp" as const,
+          dflashEnabled: false,
+        }
+      : selectedOffer && selectedQuantization && {
+          gpuType: selectedOffer.gpuType,
+          providerOfferId: selectedProvider.providerType === "vastai" ? selectedOffer.id : undefined,
+          cloudType: selectedProvider.providerType === "runpod" ? cloudType : undefined,
+          gpuCount,
+          quantization: selectedQuantization as "fp16" | "int8" | "int4" | "gguf",
+          inferenceEngine: "vllm" as const,
+          dflashEnabled,
+        }
+    if (!target) return
     setSubmitting(true)
     setError(null)
 
@@ -326,14 +373,8 @@ export function CreateDeploymentModal({
         description: description.trim() || undefined,
         modelSlug: selectedModel.slug,
         providerId: selectedProvider.id,
-        gpuType: selectedOffer.gpuType,
-        providerOfferId: selectedProvider.providerType === "vastai" ? selectedOffer.id : undefined,
-        cloudType: selectedProvider.providerType === "runpod" ? cloudType : undefined,
-        gpuCount,
-        quantization: selectedQuantization as "fp16" | "int8" | "int4" | "gguf",
-        inferenceEngine: "vllm",
         kvCacheEnabled,
-        dflashEnabled,
+        ...target,
       })
       setOverageOpen(false)
       onCreated()
@@ -350,9 +391,9 @@ export function CreateDeploymentModal({
     }
   }
 
-  const activeStep = STEPS[step]
-  const progress = STEPS.length > 1 ? step / (STEPS.length - 1) : 0
-  const isLast = step === STEPS.length - 1
+  const activeStep = steps[step]
+  const progress = steps.length > 1 ? step / (steps.length - 1) : 0
+  const isLast = step === steps.length - 1
 
   return (
     <>
@@ -368,7 +409,9 @@ export function CreateDeploymentModal({
               <div className="min-w-0">
                 <DialogTitle className="text-[17px] text-balance">New deployment</DialogTitle>
                 <p className="mt-0.5 text-sm text-muted-foreground text-pretty">
-                  Serve a model on a GPU provider in four quick steps.
+                  {cpuMode
+                    ? "Serve a model on this host's CPU in four quick steps."
+                    : "Serve a model on a GPU provider in four quick steps."}
                 </p>
               </div>
             </div>
@@ -385,7 +428,7 @@ export function CreateDeploymentModal({
                 />
               </div>
               <ol className="flex items-center justify-between gap-1">
-                {STEPS.map((entry, i) => {
+                {steps.map((entry, i) => {
                   const active = step === entry.key
                   const done = step > entry.key
                   const reachable = entry.key <= step
@@ -533,10 +576,15 @@ export function CreateDeploymentModal({
                       onSelectQuantization={setSelectedQuantization}
                       onKvCacheChange={setKvCacheEnabled}
                       onDflashChange={setDflashEnabled}
+                      cpuMode={cpuMode}
                     />
                   )}
 
-                  {step === 2 && (
+                  {step === 2 && cpuMode && hostCpu && (
+                    <CpuStep host={hostCpu} requiredRamGb={requiredRamGb} />
+                  )}
+
+                  {step === 2 && !cpuMode && (
                     <GpuStep
                       selectedProvider={selectedProvider}
                       allOffers={allOffers}
@@ -578,6 +626,7 @@ export function CreateDeploymentModal({
                       dflashEnabled={dflashEnabled}
                       stats={stats}
                       statsLoading={statsLoading}
+                      cpuRamGb={cpuMode ? requiredRamGb : null}
                     />
                   )}
                   </motion.div>
@@ -624,7 +673,7 @@ export function CreateDeploymentModal({
             </Button>
 
             <span className="text-xs tabular-nums text-muted-foreground sm:hidden">
-              {step + 1} / {STEPS.length} · {activeStep?.label}
+              {step + 1} / {steps.length} · {activeStep?.label}
             </span>
 
             {/* Where the workspace stands, so neither the block nor the
@@ -635,7 +684,7 @@ export function CreateDeploymentModal({
             {!isLast ? (
               <Button
                 className="min-w-[7rem] transition-transform active:scale-[0.96]"
-                onClick={() => goToStep(Math.min(STEPS.length - 1, step + 1))}
+                onClick={() => goToStep(Math.min(steps.length - 1, step + 1))}
                 disabled={!canGoNext() || submitting}
               >
                 Continue <ArrowRight className="size-4" />

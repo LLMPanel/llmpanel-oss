@@ -131,8 +131,17 @@ export async function findRegistryModelBySlug(slug: string): Promise<RegistryMod
   }
 }
 
-/** One model by Hugging Face repo id, from the catalog only — used for display. */
+/**
+ * Every Hugging Face repo a model deploys from: the base repo, then any
+ * quantization-specific one (a CPU deployment runs the GGUF repo, for one).
+ */
+export function registryModelRepoIds(model: RegistryModel): string[] {
+  const quantRepos = model.quantizations.flatMap((q) => (q.huggingfaceId ? [q.huggingfaceId] : []))
+  return [model.huggingfaceId, ...quantRepos]
+}
+
+/** One model by any Hugging Face repo it deploys from, from the catalog only — used for display. */
 export async function findRegistryModelByHuggingfaceId(huggingfaceId: string): Promise<RegistryModel | null> {
   const catalog = await getRegistryCatalog().catch(() => null)
-  return catalog?.models.find((m) => m.huggingfaceId === huggingfaceId) ?? null
+  return catalog?.models.find((m) => registryModelRepoIds(m).includes(huggingfaceId)) ?? null
 }

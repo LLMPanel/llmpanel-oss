@@ -74,10 +74,12 @@ JavaScript snippets, and keys you can scope, rate-limit and revoke.
 ### Everything else
 
 - **Providers.** The built-in **Local Docker** provider runs models on the host's
-  NVIDIA GPUs and is added automatically on a self-hosted install. You can also
+  NVIDIA GPUs and is added automatically on a self-hosted install. On a host
+  with no GPU it runs small GGUF models on the CPU with llama.cpp. You can also
   connect your own **RunPod** or **Vast.ai** account. Lambda Cloud, TensorDock,
   DataCrunch, Hyperstack, Hot Aisle and Thunder Compute are listed as coming soon.
-- **Engines.** vLLM by default (SGLang is available through the API), with
+- **Engines.** vLLM by default (SGLang is available through the API; llama.cpp
+  on hosts without a GPU), with
   fp16, int8, int4 and GGUF weights, multi-GPU tensor parallelism, prefix caching
   and speculative decoding.
 - **OpenAI-compatible gateway** at `/v1`: chat completions, completions,
@@ -164,7 +166,7 @@ JavaScript snippets, and keys you can scope, rate-limit and revoke.
 |                 |                                                                    |
 | --------------- | ------------------------------------------------------------------ |
 | Host            | Linux, with root. Docker is installed for you if it is missing.    |
-| GPU (local)     | An NVIDIA GPU with drivers. The installer sets up the NVIDIA Container Toolkit on apt-based systems (Ubuntu, Debian). |
+| GPU (local)     | An NVIDIA GPU with drivers. The installer sets up the NVIDIA Container Toolkit on apt-based systems (Ubuntu, Debian). Without one, Local Docker runs small GGUF models on the CPU — slower, but no GPU needed. |
 | GPU (cloud)     | A RunPod or Vast.ai API key instead — the panel itself then runs fine on a small CPU-only VPS. |
 | Ports           | 3000 and 8000, or 80 and 443 when you install with a domain.       |
 
@@ -177,7 +179,8 @@ curl -fsSL https://raw.githubusercontent.com/LLMPanel/llmpanel-oss/master/instal
 The installer:
 
 1. installs Docker and the Compose plugin if they are missing;
-2. probes for an NVIDIA GPU and, if it finds one, enables GPU support;
+2. probes for an NVIDIA GPU and, if it finds one, enables GPU support —
+   otherwise local models run on the CPU;
 3. writes `/data/llmpanel/.env` with freshly generated secrets (re-running keeps them);
 4. pulls `ghcr.io/llmpanel/llmpanel-api` and `ghcr.io/llmpanel/llmpanel-web` and starts them.
 
@@ -201,7 +204,8 @@ are encrypted at rest.
 
 Click **New Project** and follow the four steps: provider, model, GPU, review. The
 GPU step shows how much VRAM the model needs and whether the GPU you picked fits
-it. The card on the dashboard follows provisioning live and turns green when the
+it. On a host with no GPU it becomes **CPU & RAM** instead: only models with a
+GGUF build can be picked, and the step checks the model fits in free RAM. The card on the dashboard follows provisioning live and turns green when the
 health check passes.
 
 For gated models such as Llama, set `HF_TOKEN` in `/data/llmpanel/.env` first.

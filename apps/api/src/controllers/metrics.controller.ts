@@ -53,7 +53,7 @@ export const getDeploymentMetrics = async (c: Context) => {
 
   try {
     const provider = await resolveProvider(deployment)
-    const metricsCtx = { metricsToken: deployment.metricsToken }
+    const metricsCtx = { metricsToken: deployment.metricsToken, inferenceEngine: deployment.inferenceEngine }
     const gpuMetrics = await provider.getMetrics(deployment.externalId, metricsCtx)
 
     // Also pull request stats from DB for last 5 minutes
@@ -135,7 +135,7 @@ export const getDeploymentMetricsHistory = async (c: Context) => {
   // deployments whose key can't be resolved (e.g. connection deleted),
   // fall back to a keyless instantiation just to read capabilities.
   let capabilities
-  const metricsCtx = { metricsToken: deployment.metricsToken }
+  const metricsCtx = { metricsToken: deployment.metricsToken, inferenceEngine: deployment.inferenceEngine }
   try {
     const provider = await resolveProvider(deployment)
     capabilities = provider.getMetricsCapabilities(metricsCtx)

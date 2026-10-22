@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { motion } from "motion/react"
 import { Check, Search, Sparkles } from "lucide-react"
-import { resolveDflashDrafter } from "@llmpanel/shared"
+import { cpuQuantization, estimateCpuRamGb, resolveDflashDrafter } from "@llmpanel/shared"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
@@ -35,6 +35,8 @@ interface ModelStepProps {
   onSelectQuantization: (format: string) => void
   onKvCacheChange: (enabled: boolean) => void
   onDflashChange: (enabled: boolean) => void
+  /** Host has no GPU: only models with a CPU (GGUF) build can be picked. */
+  cpuMode: boolean
 }
 
 type SortKey = "name" | "vram" | "family"
@@ -42,6 +44,12 @@ type SortKey = "name" | "vram" | "family"
 function modelMinVram(model: RegistryModel): number {
   if (!model.quantizations.length) return model.minVram
   return Math.min(...model.quantizations.map((q) => q.vramRequiredGb))
+}
+
+/** RAM the model's CPU build needs, or null when it has none. */
+function modelCpuRam(model: RegistryModel): number | null {
+  const q = cpuQuantization(model)
+  return q ? estimateCpuRamGb(q.fileSizeGb ?? q.vramRequiredGb) : null
 }
 
 export function ModelStep({
@@ -56,6 +64,7 @@ export function ModelStep({
   onSelectQuantization,
   onKvCacheChange,
   onDflashChange,
+  cpuMode,
 }: ModelStepProps) {
   const [query, setQuery] = useState("")
   const [sort, setSort] = useState<SortKey>("name")
@@ -75,11 +84,17 @@ export function ModelStep({
         )
       : models
     return [...filtered].sort((a, b) => {
+      // On the CPU, models that can run come first.
+      if (cpuMode) {
+        const aCpu = modelCpuRam(a) != null ? 0 : 1
+        const bCpu = modelCpuRam(b) != null ? 0 : 1
+        if (aCpu !== bCpu) return aCpu - bCpu
+      }
       if (sort === "vram") return modelMinVram(a) - modelMinVram(b)
       if (sort === "family") return a.family.localeCompare(b.family) || a.name.localeCompare(b.name)
       return a.name.localeCompare(b.name)
     })
-  }, [models, query, sort])
+  }, [models, query, sort, cpuMode])
 
   if (modelsLoading) {
     return (
@@ -162,19 +177,23 @@ export function ModelStep({
         ) : (
           visible.map((model) => {
             const selected = model.id === selectedModelId
+            const cpuRam = cpuMode ? modelCpuRam(model) : null
+            const unavailable = cpuMode && cpuRam == null
             return (
               <button
                 key={model.id}
                 type="button"
                 role="radio"
                 aria-checked={selected}
+                disabled={unavailable}
                 onClick={() => onSelectModel(model.id)}
                 className={cn(
-                  "group flex w-full items-start gap-3 rounded-xl border p-3 text-left transition-[color,background-color,border-color,box-shadow] active:scale-[0.99]",
+                  "group flex w-full items-start gap-3 rounded-xl border p-3 text-left transition-[color,background-color,border-color,box-shadow]",
                   "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                  unavailable ? "cursor-not-allowed opacity-50" : "active:scale-[0.99]",
                   selected
                     ? "border-primary bg-accent/60 shadow-sm ring-1 ring-primary"
-                    : "border-border hover:border-foreground/25 hover:bg-accent/40"
+                    : !unavailable && "border-border hover:border-foreground/25 hover:bg-accent/40"
                 )}
               >
                 <span
@@ -194,6 +213,11 @@ export function ModelStep({
                     <Badge variant="secondary" className="shrink-0 capitalize">
                       {model.family}
                     </Badge>
+                    {unavailable && (
+                      <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide text-muted-foreground ring-1 ring-inset ring-border">
+                        No CPU build
+                      </span>
+                    )}
                   </div>
                   {model.description && (
                     <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground text-pretty">
@@ -202,7 +226,7 @@ export function ModelStep({
                   )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     <span className="text-[11px] tabular-nums text-muted-foreground">
-                      {modelMinVram(model)} GB min VRAM
+                      {cpuRam != null ? `~${cpuRam} GB RAM` : `${modelMinVram(model)} GB min VRAM`}
                     </span>
                     {model.quantizations.slice(0, 4).map((q) => (
                       <Badge
@@ -233,7 +257,11 @@ export function ModelStep({
             Quantization
           </Label>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {selectedModel.quantizations.map((q: RegistryQuantization) => {
+            {/* On the CPU the GGUF build is the only option. */}
+            {(cpuMode
+              ? selectedModel.quantizations.filter((q) => q === cpuQuantization(selectedModel))
+              : selectedModel.quantizations
+            ).map((q: RegistryQuantization) => {
               const active = selectedQuantization === q.format
               return (
                 <button
@@ -257,7 +285,9 @@ export function ModelStep({
                     )}
                   </div>
                   <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">
-                    {q.vramRequiredGb} GB VRAM
+                    {cpuMode
+                      ? `~${estimateCpuRamGb(q.fileSizeGb ?? q.vramRequiredGb)} GB RAM`
+                      : `${q.vramRequiredGb} GB VRAM`}
                   </p>
                   {q.fileSizeGb != null && (
                     <p className="text-[11px] tabular-nums text-muted-foreground">
@@ -276,54 +306,60 @@ export function ModelStep({
         </motion.div>
       )}
 
-      {/* KV Cache toggle */}
-      <motion.label
-        variants={stepItem}
-        htmlFor="kv-cache"
-        className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3"
-      >
-        <div className="min-w-0">
-          <p className="text-sm font-medium">KV cache</p>
-          <p className="text-xs text-muted-foreground text-pretty">
-            Enable prefix caching to speed up repeated prompts.
-          </p>
-        </div>
-        <Switch id="kv-cache" checked={kvCacheEnabled} onCheckedChange={onKvCacheChange} />
-      </motion.label>
+      {/* Engine options are vLLM's: llama.cpp always caches prompts and has
+          no DFlash, so CPU deployments skip both toggles. */}
+      {!cpuMode && (
+        <>
+          {/* KV Cache toggle */}
+          <motion.label
+            variants={stepItem}
+            htmlFor="kv-cache"
+            className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium">KV cache</p>
+              <p className="text-xs text-muted-foreground text-pretty">
+                Enable prefix caching to speed up repeated prompts.
+              </p>
+            </div>
+            <Switch id="kv-cache" checked={kvCacheEnabled} onCheckedChange={onKvCacheChange} />
+          </motion.label>
 
-      {/* DFlash 2 speculative decoding — only meaningful when a drafter exists
-          for the selected model; the switch is disabled otherwise. */}
-      <motion.label
-        variants={stepItem}
-        htmlFor="dflash"
-        className={cn(
-          "flex items-center justify-between gap-3 rounded-xl border p-3",
-          drafter ? "cursor-pointer" : "cursor-not-allowed opacity-60"
-        )}
-      >
-        <div className="min-w-0">
-          <p className="text-sm font-medium">DFlash 2 speculative decoding</p>
-          <p className="text-xs text-muted-foreground text-pretty">
-            {drafter ? (
-              <>
-                Block‑diffusion drafter{" "}
-                <code className="font-mono text-[11px]">{drafter.model}</code>
-                {" "}— up to ~3× faster decoding, identical output.
-              </>
-            ) : selectedModel ? (
-              "No DFlash drafter is available for this model yet."
-            ) : (
-              "Select a model to see if a drafter is available."
+          {/* DFlash 2 speculative decoding — only meaningful when a drafter exists
+              for the selected model; the switch is disabled otherwise. */}
+          <motion.label
+            variants={stepItem}
+            htmlFor="dflash"
+            className={cn(
+              "flex items-center justify-between gap-3 rounded-xl border p-3",
+              drafter ? "cursor-pointer" : "cursor-not-allowed opacity-60"
             )}
-          </p>
-        </div>
-        <Switch
-          id="dflash"
-          checked={!!drafter && dflashEnabled}
-          disabled={!drafter}
-          onCheckedChange={onDflashChange}
-        />
-      </motion.label>
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium">DFlash 2 speculative decoding</p>
+              <p className="text-xs text-muted-foreground text-pretty">
+                {drafter ? (
+                  <>
+                    Block‑diffusion drafter{" "}
+                    <code className="font-mono text-[11px]">{drafter.model}</code>
+                    {" "}— up to ~3× faster decoding, identical output.
+                  </>
+                ) : selectedModel ? (
+                  "No DFlash drafter is available for this model yet."
+                ) : (
+                  "Select a model to see if a drafter is available."
+                )}
+              </p>
+            </div>
+            <Switch
+              id="dflash"
+              checked={!!drafter && dflashEnabled}
+              disabled={!drafter}
+              onCheckedChange={onDflashChange}
+            />
+          </motion.label>
+        </>
+      )}
     </motion.div>
   )
 }

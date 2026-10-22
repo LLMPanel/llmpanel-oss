@@ -3,6 +3,7 @@ import { promisify } from "util"
 import type { Context } from "hono"
 import { env } from "../env"
 import { isEmailConfigured } from "../services/email.service"
+import { getHostCpu, hostHasGpu } from "../services/host.service"
 
 const execAsync = promisify(exec)
 
@@ -31,12 +32,14 @@ export async function getSystemGpu(c: Context) {
   }
 
   // The installer already probed the host and found nothing — don't shell out to
-  // an nvidia-smi that isn't there just to rediscover that.
-  if (!env.GPU_AVAILABLE) {
+  // an nvidia-smi that isn't there just to rediscover that. Local deployments
+  // run on the CPU instead; `cpu` is what the wizard sizes them against.
+  if (!hostHasGpu()) {
     return c.json({
       detected: false,
       gpus: [],
-      error: "No GPU detected on this host — cloud providers only",
+      error: "No GPU detected on this host — local models run on the CPU",
+      cpu: getHostCpu(),
     })
   }
 

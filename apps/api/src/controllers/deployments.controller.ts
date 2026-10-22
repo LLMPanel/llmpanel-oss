@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { resolveDflashDrafter } from "@llmpanel/shared"
+import { cpuQuantization, estimateCpuRamGb, resolveDflashDrafter } from "@llmpanel/shared"
 import { db } from "@llmpanel/db";
 import { deployments, providerConnections, imageGenerations } from "@llmpanel/db";
 import { and, desc, eq, gte } from "drizzle-orm";
@@ -14,10 +14,12 @@ import { env } from "../env"
 import { generateImages, type ImageGenBody } from "../services/image-gen.service"
 import { getWorkspaceId } from "../lib/workspace-context"
 import { checkDeploymentAllowed, reportDeploymentUsage } from "../services/billing.service"
+import { getHostCpu, hostHasGpu } from "../services/host.service"
 import {
   findRegistryModelByHuggingfaceId,
   findRegistryModelBySlug,
   getRegistryCatalog,
+  registryModelRepoIds,
   type RegistryModel,
 } from "../services/model-registry.service"
 
@@ -42,6 +44,9 @@ async function fetchAllRegistryModels(): Promise<Map<string, RegistryModel>> {
   const catalog = await getRegistryCatalog().catch(() => null)
   for (const m of catalog?.models ?? []) {
     map.set(m.huggingfaceId, m)
+    // Quantization repos too — a CPU deployment's huggingfaceId is its GGUF
+    // repo — but never in place of a model whose base repo it is.
+    for (const repo of registryModelRepoIds(m)) if (!map.has(repo)) map.set(repo, m)
   }
   return map
 }
@@ -60,7 +65,7 @@ type CreateDeploymentBody = {
   cloudType?: "secure" | "community";
   gpuCount?: number;
   quantization: "fp16" | "int8" | "int4" | "gguf";
-  inferenceEngine?: "vllm" | "sglang";
+  inferenceEngine?: "vllm" | "sglang" | "llamacpp";
   kvCacheEnabled?: boolean;
   dflashEnabled?: boolean;
   envVars?: Record<string, string>;
@@ -96,11 +101,36 @@ export const createDeployment = async (c: Context) => {
   const registryModel = await fetchRegistryModel(body.modelSlug)
   if (!registryModel) return c.json({ error: "Model not found in registry" }, 404);
 
-  // Resolve huggingfaceId — quantization-specific override or base model
-  const quantInfo = registryModel.quantizations.find((q) => q.format === body.quantization)
+  // CPU inference: every local deploy on a host without a GPU, or an explicit
+  // llamacpp request. Checked here, not just in the wizard — a deploy the
+  // host can't run would otherwise only fail minutes later inside Docker.
+  const cpuMode =
+    body.inferenceEngine === "llamacpp" || (provider.providerType === "local" && !hostHasGpu())
+  let cpuQuant: RegistryModel["quantizations"][number] | null = null
+  if (cpuMode) {
+    if (provider.providerType !== "local") {
+      return c.json({ error: "CPU (llama.cpp) deployments only run on the Local Docker provider" }, 400)
+    }
+    cpuQuant = cpuQuantization(registryModel)
+    if (!cpuQuant) {
+      return c.json({ error: `${registryModel.name} has no CPU (GGUF) build yet — this host has no GPU` }, 400)
+    }
+    const neededGb = estimateCpuRamGb(cpuQuant.fileSizeGb)
+    const availableGb = Math.round((getHostCpu().availableRamMb / 1024) * 10) / 10
+    if (neededGb > availableGb) {
+      return c.json({
+        error: `${registryModel.name} needs about ${neededGb} GB of RAM on the CPU; this host has ${availableGb} GB free`,
+      }, 400)
+    }
+  }
+
+  // Resolve huggingfaceId — quantization-specific override or base model.
+  // CPU deploys always take the GGUF repo, whatever quantization was sent.
+  const quantization = cpuQuant ? "gguf" : body.quantization
+  const quantInfo = cpuQuant ?? registryModel.quantizations.find((q) => q.format === quantization)
   const huggingfaceId = quantInfo?.huggingfaceId ?? registryModel.huggingfaceId
 
-  const gpuCount = body.gpuCount ?? 1;
+  const gpuCount = cpuMode ? 1 : (body.gpuCount ?? 1);
 
   // Auto-generate a routable domain up front so it's stable for the whole
   // lifecycle (slug + short id => unique even across same-model deployments).
@@ -119,16 +149,17 @@ export const createDeployment = async (c: Context) => {
       domain,
       providerConnectionId: provider.id,
       providerType: provider.providerType,
-      gpuType: body.gpuType,
+      gpuType: cpuMode ? "cpu" : body.gpuType,
       providerOfferId: body.providerOfferId ?? null,
       // Cloud choice only means something on RunPod; others stay null.
       cloudType: provider.providerType === "runpod" ? (body.cloudType ?? "secure") : null,
       gpuCount,
-      quantization: body.quantization,
-      inferenceEngine: body.inferenceEngine ?? "vllm",
+      quantization,
+      inferenceEngine: cpuMode ? "llamacpp" : (body.inferenceEngine ?? "vllm"),
       kvCacheEnabled: body.kvCacheEnabled ?? true,
-      dflashEnabled: body.dflashEnabled ?? true,
-      dflashDraftModel: resolveDflashDrafter(huggingfaceId)?.model ?? null,
+      // DFlash drafters are vLLM-only.
+      dflashEnabled: cpuMode ? false : (body.dflashEnabled ?? true),
+      dflashDraftModel: cpuMode ? null : (resolveDflashDrafter(huggingfaceId)?.model ?? null),
       modelType: registryModel.modelType ?? null,
       dockerImage: registryModel.dockerImage ?? null,
       extraArgs: registryModel.extraArgs ?? null,

@@ -93,8 +93,8 @@ probe_gpu() {
   info "probing for NVIDIA GPU"
 
   if ! command -v nvidia-smi >/dev/null 2>&1 || ! nvidia-smi -L >/dev/null 2>&1; then
-    warn "no GPU detected — the panel will run in cloud-provider-only mode"
-    warn "(RunPod / Vast.ai deployments still work; local vLLM containers do not)"
+    warn "no GPU detected — local models will run on the CPU (llama.cpp, GGUF)"
+    warn "(fine for small models; add RunPod / Vast.ai in the panel for GPU speed)"
     return 0
   fi
   ok "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader | paste -sd', ' -)"
@@ -115,7 +115,7 @@ probe_gpu() {
     GPU_AVAILABLE=true
     ok "GPU is usable from containers"
   else
-    warn "GPU present but 'docker run --gpus all' failed — falling back to cloud-only mode"
+    warn "GPU present but 'docker run --gpus all' failed — local models will run on the CPU"
   fi
 }
 
@@ -311,7 +311,7 @@ summary() {
   printf '\n%sLLMPanel is running%s\n\n' "$BOLD$GREEN" "$RESET"
   printf '  Panel     %s\n' "$APP_URL"
   printf '  API       %s\n' "$API_URL"
-  printf '  GPU       %s\n' "$([[ "$GPU_AVAILABLE" == "true" ]] && echo "detected" || echo "none — cloud providers only")"
+  printf '  GPU       %s\n' "$([[ "$GPU_AVAILABLE" == "true" ]] && echo "detected" || echo "none — local models run on the CPU")"
   printf '  Data      %s  %s(sqlite + generated images)%s\n' "docker volume llmpanel_llmpanel_data" "$DIM" "$RESET"
   printf '  Config    %s\n\n' "${INSTALL_DIR}/.env"
 

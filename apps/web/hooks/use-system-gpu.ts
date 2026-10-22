@@ -12,10 +12,19 @@ export interface SystemGpu {
   temperatureCelsius: number
 }
 
+/** The host's CPU and RAM — only reported when it has no GPU, in which case
+ *  local deployments run on the CPU (llama.cpp). */
+export interface HostCpu {
+  cores: number
+  totalRamMb: number
+  availableRamMb: number
+}
+
 export interface SystemGpuData {
   detected: boolean
   gpus: SystemGpu[]
   error?: string
+  cpu?: HostCpu
 }
 
 /** Converts MiB → whole GB (rounded) */
@@ -50,6 +59,7 @@ export function useSystemGpu() {
     detected: data?.detected ?? false,
     gpus: data?.gpus ?? [],
     error: data?.error,
+    cpu: data?.cpu ?? null,
     isLoading,
     refetch: load,
   }

@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { StatusBadge } from "./status-badge"
 import type { Deployment } from "@/hooks/use-deployments"
+import { engineLabel, isCpuEngine } from "@/lib/inference-engine"
 
 interface DeploymentHeaderProps {
   deployment: Deployment
@@ -93,7 +94,7 @@ export function DeploymentHeader({
               <Button variant="outline" size="sm" className="gap-1.5" asChild>
                 <Link href={`/dashboard/deployments/${deployment.id}/metrics`}>
                   <BarChart3 className="size-3.5" />
-                  GPU Metrics
+                  {isCpuEngine(deployment.inferenceEngine) ? "Metrics" : "GPU Metrics"}
                 </Link>
               </Button>
               <Button variant="outline" size="sm" className="gap-1.5" asChild>
@@ -158,7 +159,7 @@ export function DeploymentHeader({
           className="gap-1.5 text-[11px] px-2.5 py-1 font-normal"
         >
           <Layers className="size-3" />
-          {deployment.inferenceEngine.toUpperCase()}
+          {engineLabel(deployment.inferenceEngine)}
         </Badge>
         {deployment.runningFor && (
           <Badge

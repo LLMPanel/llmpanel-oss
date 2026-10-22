@@ -79,6 +79,14 @@ export function createProvider(
 
 ## packages/providers/src/local/docker.client.ts
 
+`buildContainerConfig` has three shapes: image-generation, vLLM/SGLang (NVIDIA
+`DeviceRequests`), and `inferenceEngine: "llamacpp"` — llama.cpp on the CPU for
+hosts without a GPU, with no device request, the GGUF repo passed as
+`--hf-repo <repo>:Q4_K_M`, and weights cached in the `llmpanel-llamacpp-cache`
+volume. `LocalProvider` reads `MetricsContext.inferenceEngine` to report Docker
+CPU/memory stats for those containers instead of exec-ing `nvidia-smi`. See
+`docs/08-docker.md` → "No GPU means llama.cpp on the CPU".
+
 ```typescript
 import type Docker from "dockerode"
 import type { ContainerCreateOptions } from "dockerode"
