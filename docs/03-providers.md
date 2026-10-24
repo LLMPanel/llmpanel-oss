@@ -87,6 +87,13 @@ volume. `LocalProvider` reads `MetricsContext.inferenceEngine` to report Docker
 CPU/memory stats for those containers instead of exec-ing `nvidia-smi`. See
 `docs/08-docker.md` → "No GPU means llama.cpp on the CPU".
 
+Every shape takes a `DeploymentExposure`: `{ kind: "network" }` joins the API
+container's own Docker network and publishes nothing (endpoint
+`http://llmpanel-<id>:8000`), `{ kind: "port" }` publishes a host port, on loopback
+under `pnpm dev`. `inspectedEndpoint()` reads either back from `docker inspect`, so
+containers created before v0.1.2, which still publish a port, keep working. See
+`docs/08-docker.md` → "Deployment containers join the stack's network".
+
 ```typescript
 import type Docker from "dockerode"
 import type { ContainerCreateOptions } from "dockerode"
@@ -166,14 +173,15 @@ function mapQuantization(q: string): string {
 ```typescript
 import Docker from "dockerode"
 import type { IGPUProvider, DeployModelInput, DeploymentInfo, GPUMetrics } from "../types"
-import { allocateHostPort, buildContainerConfig, deploymentEndpoint } from "./docker.client"
+import { buildContainerConfig, exposureEndpoint, inspectedEndpoint } from "./docker.client"
 
 export class LocalProvider implements IGPUProvider {
   private docker = new Docker({ socketPath: "/var/run/docker.sock" })
 
   async deployModel(input: DeployModelInput): Promise<DeploymentInfo> {
-    const port = await allocateHostPort(this.docker)
-    const config = buildContainerConfig(input, port)
+    // The API's own network when it runs in a container, else a loopback port.
+    const exposure = await this.exposure()
+    const config = buildContainerConfig(input, exposure)
 
     // Pull image
     await new Promise<void>((resolve, reject) => {
@@ -189,7 +197,7 @@ export class LocalProvider implements IGPUProvider {
     return {
       externalId: container.id,
       status: "provisioning",
-      endpoint: deploymentEndpoint(port),
+      endpoint: exposureEndpoint(exposure, config.name!),
       gpuType: "local",
       costPerHour: null,
     }
@@ -207,11 +215,10 @@ export class LocalProvider implements IGPUProvider {
 
   async getDeploymentInfo(externalId: string): Promise<DeploymentInfo> {
     const info = await this.docker.getContainer(externalId).inspect()
-    const port = Object.values(info.NetworkSettings.Ports)[0]?.[0]?.HostPort
     return {
       externalId,
       status: info.State.Running ? "running" : "stopped",
-      endpoint: port ? deploymentEndpoint(port) : null,
+      endpoint: inspectedEndpoint(info),
       gpuType: "local",
       costPerHour: null,
     }

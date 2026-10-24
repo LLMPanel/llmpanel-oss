@@ -10,18 +10,28 @@
 curl -fsSL https://raw.githubusercontent.com/LLMPanel/llmpanel-oss/master/install.sh | sudo bash
 
 # With a domain, TLS, and per-deployment subdomains
-PANEL_DOMAIN=panel.example.com \
-API_DOMAIN=api.example.com \
-BASE_DOMAIN=example.com \
-ACME_EMAIL=you@example.com \
-CF_DNS_API_TOKEN=xxxx \
-  curl -fsSL https://raw.githubusercontent.com/LLMPanel/llmpanel-oss/master/install.sh | sudo -E bash
+curl -fsSL https://raw.githubusercontent.com/LLMPanel/llmpanel-oss/master/install.sh | sudo \
+  PANEL_DOMAIN=panel.example.com \
+  API_DOMAIN=api.example.com \
+  BASE_DOMAIN=example.com \
+  ACME_EMAIL=you@example.com \
+  CF_DNS_API_TOKEN=xxxx \
+  bash
 ```
+
+The variables go after `sudo`. Written in front of `curl`, they would reach only
+curl, never the bash on the other side of the pipe.
 
 Configuration is passed as environment variables, never prompted for: when the
 script is piped from curl, stdin is the script itself, so there is nothing to
 read answers from. Coolify writes a `.env` and asks you to edit it for the same
-reason. Re-running the installer preserves existing secrets.
+reason.
+
+Re-running the installer is the upgrade path. It pulls the newest images,
+re-downloads the compose files (a copy that changed is kept as `.bak.<time>`), and
+keeps the secrets and every setting already in `.env` unless a new value is passed.
+`LLMPANEL_KEEP_FILES=1` keeps the compose files on disk untouched, and so does a
+failed download; `LLMPANEL_RAW_BASE` points the downloads at a mirror.
 
 Installs to `/data/llmpanel` (override with `LLMPANEL_DIR`).
 
@@ -60,16 +70,26 @@ be a **production dependency of `apps/api`**, even if it is declared in
 is set to an absolute path in the image, because the bundle has no source tree to
 search.
 
-**Deployment containers are reached via `DEPLOYMENT_HOST`.**
-Inside a container, `localhost` is not the host. Compose sets
-`DEPLOYMENT_HOST=host.docker.internal` with an `extra_hosts` host-gateway entry so
-the gateway can reach ports published by inference containers.
+**Deployment containers join the stack's network and publish no host port.**
+The API inspects its own container (its hostname is the container ID), finds its
+user-defined network (`llmpanel_llmpanel`), and creates each inference container on
+it. The gateway, and the web container's chat route, reach the model as
+`http://llmpanel-<deployment-id>:8000`. Nothing listens on the host, so a model is
+only reachable through the gateway, which checks API keys. `DEPLOYMENT_NETWORK`
+names the network outright when the lookup cannot work.
 
-**Host ports come from Docker, not from a probe socket.**
-`allocateHostPort()` asks the daemon which ports are taken. Binding a probe socket
-would only describe the API container's own network namespace. Ports are pinned
-for the container's lifetime so they survive a restart — an auto-assigned port
-would be reallocated and strand the endpoint stored in the database.
+Containers created before v0.1.2 published a port on every interface and are
+reached via `DEPLOYMENT_HOST=host.docker.internal`; both `api` and `web` carry the
+`extra_hosts` host-gateway entry that makes that name resolve on Linux. Redeploying
+such a model moves it onto the network and closes its port.
+
+**Host ports, when used, come from Docker, not from a probe socket.**
+With the API running straight on the host (`pnpm dev`), container names do not
+resolve, so deployments publish a port on `127.0.0.1` instead. `allocateHostPort()`
+asks the daemon which ports are taken: binding a probe socket would only describe
+the caller's own network namespace. Ports are pinned for the container's lifetime
+so they survive a restart — an auto-assigned port would be reallocated and strand
+the endpoint stored in the database.
 
 **Wildcard TLS requires DNS-01.**
 Let's Encrypt issues wildcard certificates only over the DNS-01 challenge, and

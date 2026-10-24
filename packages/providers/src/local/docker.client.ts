@@ -1,11 +1,17 @@
 import type Docker from "dockerode"
 import { vllmSpeculativeArgv, sglangSpeculativeArgv } from "../shared/speculative"
-import type { ContainerCreateOptions } from "dockerode"
+import type { ContainerCreateOptions, ContainerInspectInfo, HostConfig } from "dockerode"
 import type { DeployModelInput } from "../types"
 
 /** Host port range reserved for deployment containers. */
 const PORT_RANGE_START = 39000
 const PORT_RANGE_END = 39999
+
+/** Every inference server listens here inside its container. */
+const CONTAINER_PORT = 8000
+
+/** Docker's built-in networks. Containers on them get no name-based DNS. */
+const BUILTIN_NETWORKS = new Set(["bridge", "host", "none"])
 
 /** CPU inference server. Pinned: the rolling `server` tag is rebuilt several times a day. */
 const LLAMACPP_IMAGE = "ghcr.io/ggml-org/llama.cpp:server-b11515"
@@ -16,6 +22,28 @@ const LLAMACPP_QUANT = "Q4_K_M"
  *  redeploy of the same model reuses the weights instead of downloading them. */
 const LLAMACPP_CACHE_VOLUME = "llmpanel-llamacpp-cache"
 const LLAMACPP_CACHE_DIR = "/models"
+
+/**
+ * How a deployment container is reached.
+ *
+ * `network`: the container joins the panel's own Docker network and is reached by
+ * name. Nothing is published on the host, so the model answers only through the
+ * gateway, which checks API keys. Used whenever the API runs in a container,
+ * which is every install.sh install.
+ *
+ * `port`: the container publishes a host port. Used when the API runs straight on
+ * the host (`pnpm dev`), where container names do not resolve. `hostIp` is
+ * loopback there; an empty `hostIp` means every interface, the pre-v0.1.2
+ * behaviour, kept only for a containerised API with no network to share.
+ */
+export type DeploymentExposure =
+  | { kind: "network"; network: string }
+  | { kind: "port"; hostPort: number; hostIp: string }
+
+/** Docker name of a deployment's container, which is also its DNS name on the network. */
+export function containerName(deploymentId: string): string {
+  return `llmpanel-${deploymentId}`
+}
 
 /**
  * Host address at which the API can reach ports published by deployment containers.
@@ -32,6 +60,63 @@ function deploymentHost(): string {
 /** Build the URL the gateway uses to reach a deployment's published port. */
 export function deploymentEndpoint(hostPort: string | number): string {
   return `http://${deploymentHost()}:${hostPort}`
+}
+
+/** Build the URL the gateway uses to reach a deployment on the panel's network. */
+export function networkEndpoint(name: string): string {
+  return `http://${name}:${CONTAINER_PORT}`
+}
+
+/** The endpoint a container created with `exposure` answers on. */
+export function exposureEndpoint(exposure: DeploymentExposure, name: string): string {
+  return exposure.kind === "network" ? networkEndpoint(name) : deploymentEndpoint(exposure.hostPort)
+}
+
+/**
+ * Where a deployment container answers, read back from Docker: its published port
+ * when it has one (containers from v0.1.1 and earlier, and `pnpm dev`), otherwise
+ * its name on a shared network. Null while the container is not running, as a
+ * published port is then gone too.
+ */
+export function inspectedEndpoint(info: ContainerInspectInfo): string | null {
+  if (!info.State.Running) return null
+
+  const hostPort = Object.values(info.NetworkSettings.Ports ?? {})
+    .flatMap((bindings) => bindings ?? [])
+    .find((binding) => binding.HostPort)?.HostPort
+  if (hostPort) return deploymentEndpoint(hostPort)
+
+  const sharesANetwork = Object.keys(info.NetworkSettings.Networks ?? {}).some(
+    (network) => !BUILTIN_NETWORKS.has(network)
+  )
+  return sharesANetwork ? networkEndpoint(info.Name.replace(/^\//, "")) : null
+}
+
+/**
+ * The network a deployment should join: the first user-defined network the API's
+ * own container is on, preferring the compose stack's `<project>_llmpanel`.
+ */
+export function pickSharedNetwork(info: ContainerInspectInfo): string | null {
+  const networks = Object.keys(info.NetworkSettings.Networks ?? {}).filter(
+    (network) => !BUILTIN_NETWORKS.has(network)
+  )
+  return networks.find((network) => network.endsWith("_llmpanel")) ?? networks[0] ?? null
+}
+
+/** The HostConfig half of an exposure: a port binding, or the network to join. */
+function hostExposure(exposure: DeploymentExposure): Pick<HostConfig, "PortBindings" | "NetworkMode"> {
+  if (exposure.kind === "network") return { NetworkMode: exposure.network }
+  return {
+    PortBindings: {
+      [`${CONTAINER_PORT}/tcp`]: [{ HostIp: exposure.hostIp, HostPort: String(exposure.hostPort) }],
+    },
+  }
+}
+
+/** The top-level half of an exposure: the endpoint on the network being joined. */
+function networkExposure(exposure: DeploymentExposure): Pick<ContainerCreateOptions, "NetworkingConfig"> {
+  if (exposure.kind !== "network") return {}
+  return { NetworkingConfig: { EndpointsConfig: { [exposure.network]: {} } } }
 }
 
 /**
@@ -60,7 +145,7 @@ export async function allocateHostPort(docker: Docker): Promise<number> {
 
 export function buildContainerConfig(
   input: DeployModelInput,
-  hostPort: number
+  exposure: DeploymentExposure
 ): ContainerCreateOptions {
   const engineImages: Record<string, string> = {
     vllm: "vllm/vllm-openai:latest",
@@ -75,7 +160,7 @@ export function buildContainerConfig(
   // /health + OpenAI-style endpoint on :8000. It has no vLLM CLI flags.
   if (input.modelType === "image-generation") {
     return {
-      name: `llmpanel-${input.deploymentId}`,
+      name: containerName(input.deploymentId),
       Image: input.dockerImage ?? "llmpanel/image-gen-server:latest",
       Env: [
         `MODEL_ID=${input.huggingfaceId}`,
@@ -85,11 +170,12 @@ export function buildContainerConfig(
         ...(input.envVars ? Object.entries(input.envVars).map(([k, v]) => `${k}=${v}`) : []),
       ],
       ExposedPorts: { "8000/tcp": {} },
+      ...networkExposure(exposure),
       HostConfig: {
         DeviceRequests: [
           { Driver: "nvidia", Count: gpuCount, Capabilities: [["gpu"]] },
         ],
-        PortBindings: { "8000/tcp": [{ HostPort: String(hostPort) }] },
+        ...hostExposure(exposure),
         RestartPolicy: { Name: "unless-stopped" },
         ShmSize: 8 * 1024 * 1024 * 1024, // 8GB — diffusion pipelines spike on load
       },
@@ -102,7 +188,7 @@ export function buildContainerConfig(
   // downloads the quant itself on first start.
   if (input.inferenceEngine === "llamacpp") {
     return {
-      name: `llmpanel-${input.deploymentId}`,
+      name: containerName(input.deploymentId),
       Image: LLAMACPP_IMAGE,
       Cmd: [
         "--hf-repo", `${input.huggingfaceId}:${LLAMACPP_QUANT}`,
@@ -128,11 +214,12 @@ export function buildContainerConfig(
         ...(input.envVars ? Object.entries(input.envVars).map(([k, v]) => `${k}=${v}`) : []),
       ],
       ExposedPorts: { "8000/tcp": {} },
+      ...networkExposure(exposure),
       // The image's own healthcheck probes :8080, where nothing listens here.
       Healthcheck: { Test: ["CMD", "curl", "-f", "http://localhost:8000/health"] },
       HostConfig: {
         Binds: [`${LLAMACPP_CACHE_VOLUME}:${LLAMACPP_CACHE_DIR}`],
-        PortBindings: { "8000/tcp": [{ HostPort: String(hostPort) }] },
+        ...hostExposure(exposure),
         RestartPolicy: { Name: "unless-stopped" },
       },
     }
@@ -200,7 +287,7 @@ export function buildContainerConfig(
   }
 
   return {
-    name: `llmpanel-${input.deploymentId}`,
+    name: containerName(input.deploymentId),
     Image: input.dockerImage ?? engineImages[input.inferenceEngine],
     Cmd: engineCommands[input.inferenceEngine],
     Env: [
@@ -209,6 +296,7 @@ export function buildContainerConfig(
       ...(input.envVars ? Object.entries(input.envVars).map(([k, v]) => `${k}=${v}`) : []),
     ],
     ExposedPorts: { "8000/tcp": {} },
+    ...networkExposure(exposure),
     HostConfig: {
       DeviceRequests: [
         {
@@ -217,9 +305,7 @@ export function buildContainerConfig(
           Capabilities: [["gpu"]],
         },
       ],
-      PortBindings: {
-        "8000/tcp": [{ HostPort: String(hostPort) }],
-      },
+      ...hostExposure(exposure),
       RestartPolicy: { Name: "unless-stopped" },
       ShmSize: gpuCount * 10 * 1024 * 1024 * 1024, // 10GB per GPU for NCCL inter-GPU communication
     },

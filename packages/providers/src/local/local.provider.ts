@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs"
+import { hostname } from "node:os"
 import Docker from "dockerode"
 import type {
   IGPUProvider,
@@ -7,11 +9,46 @@ import type {
   MetricsCapabilities,
   MetricsContext,
 } from "../types"
-import { allocateHostPort, buildContainerConfig, deploymentEndpoint } from "./docker.client"
+import {
+  allocateHostPort,
+  buildContainerConfig,
+  exposureEndpoint,
+  inspectedEndpoint,
+  pickSharedNetwork,
+  type DeploymentExposure,
+} from "./docker.client"
 
 /** llama.cpp containers run on the CPU: no nvidia-smi inside, nothing GPU to report. */
 function isCpuDeployment(ctx?: MetricsContext): boolean {
   return ctx?.inferenceEngine === "llamacpp"
+}
+
+/** Where the API runs. Looked up once: it cannot change while the process lives. */
+interface ApiPlacement {
+  inContainer: boolean
+  /** A user-defined network the API container is on, for deployments to join. */
+  network: string | null
+}
+
+let placement: Promise<ApiPlacement> | undefined
+
+/**
+ * DEPLOYMENT_NETWORK names the network outright. Otherwise, inside a container,
+ * the hostname is the container's short ID, so the API can inspect itself.
+ */
+async function findApiPlacement(docker: Docker): Promise<ApiPlacement> {
+  const inContainer = existsSync("/.dockerenv")
+  if (process.env.DEPLOYMENT_NETWORK) {
+    return { inContainer, network: process.env.DEPLOYMENT_NETWORK }
+  }
+  if (!inContainer) return { inContainer, network: null }
+
+  try {
+    const self = await docker.getContainer(hostname()).inspect()
+    return { inContainer, network: pickSharedNetwork(self) }
+  } catch {
+    return { inContainer, network: null }
+  }
 }
 
 export class LocalProvider implements IGPUProvider {
@@ -21,9 +58,30 @@ export class LocalProvider implements IGPUProvider {
     this.docker = new Docker({ socketPath: "/var/run/docker.sock" })
   }
 
+  /**
+   * Join the API's network when it has one, so the model gets no host port at
+   * all. Otherwise publish a port: on loopback when the API runs on the host,
+   * and on every interface only when a containerised API has no network to
+   * share, since loopback would be unreachable from it.
+   */
+  private async exposure(): Promise<DeploymentExposure> {
+    placement ??= findApiPlacement(this.docker)
+    const { inContainer, network } = await placement
+    if (network) return { kind: "network", network }
+
+    const hostPort = await allocateHostPort(this.docker)
+    if (inContainer) {
+      console.warn(
+        `[LocalProvider] API container shares no Docker network; publishing port ${hostPort} on all interfaces. Set DEPLOYMENT_NETWORK to keep it private.`
+      )
+      return { kind: "port", hostPort, hostIp: "" }
+    }
+    return { kind: "port", hostPort, hostIp: "127.0.0.1" }
+  }
+
   async deployModel(input: DeployModelInput): Promise<DeploymentInfo> {
-    const port = await allocateHostPort(this.docker)
-    const config = buildContainerConfig(input, port)
+    const exposure = await this.exposure()
+    const config = buildContainerConfig(input, exposure)
 
     // Pull image first
     await new Promise<void>((resolve, reject) => {
@@ -40,7 +98,7 @@ export class LocalProvider implements IGPUProvider {
     return {
       externalId: container.id,
       status: "provisioning",
-      endpoint: deploymentEndpoint(port),
+      endpoint: exposureEndpoint(exposure, config.name!),
       gpuType: "local",
       costPerHour: null,
     }
@@ -70,12 +128,11 @@ export class LocalProvider implements IGPUProvider {
   async getDeploymentInfo(externalId: string): Promise<DeploymentInfo> {
     const container = this.docker.getContainer(externalId)
     const info = await container.inspect()
-    const port = Object.values(info.NetworkSettings.Ports)[0]?.[0]?.HostPort
 
     return {
       externalId,
       status: info.State.Running ? "running" : "stopped",
-      endpoint: port ? deploymentEndpoint(port) : null,
+      endpoint: inspectedEndpoint(info),
       gpuType: "local",
       costPerHour: null,
     }

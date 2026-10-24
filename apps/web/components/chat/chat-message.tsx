@@ -3,7 +3,9 @@
 import { useState } from "react"
 import { motion } from "motion/react"
 import {
+  Brain,
   Check,
+  ChevronRight,
   Clock,
   Copy,
   Gauge,
@@ -22,7 +24,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { formatCompact, formatDuration, type ChatMessage } from "@/lib/chat"
+import {
+  formatCompact,
+  formatDuration,
+  splitThinking,
+  type ChatMessage,
+} from "@/lib/chat"
 
 // Bubbles arrive from the edge they're anchored to — a sent message grows out
 // of the composer on the right, a reply out of the left — with a damped spring.
@@ -100,6 +107,37 @@ function TypingDots() {
   )
 }
 
+// A thinking model's reasoning, folded away above its answer. Open it to read
+// along; while the model is still thinking the label says so.
+function ThinkingBlock({ text, active }: { text: string; active: boolean }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="flex max-w-[85%] flex-col items-start">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-muted-foreground transition-[transform,background-color,color] duration-100 hover:bg-muted hover:text-foreground active:scale-95"
+      >
+        <Brain className={cn("size-3.5", active && "animate-pulse")} />
+        {active ? "Thinking…" : "Thought process"}
+        <ChevronRight
+          className={cn("size-3 transition-transform duration-150", open && "rotate-90")}
+        />
+      </button>
+      {open && text && (
+        <MessageContent
+          markdown
+          className="ml-4 mt-1 rounded-none border-l border-border bg-transparent py-0 pl-3 pr-0 text-[13px] leading-[1.5] text-muted-foreground prose-p:my-1 prose-pre:my-2 prose-strong:text-muted-foreground"
+        >
+          {text}
+        </MessageContent>
+      )}
+    </div>
+  )
+}
+
 interface ChatMessageItemProps {
   message: ChatMessage
   isStreaming: boolean
@@ -120,7 +158,12 @@ export function ChatMessageItem({
   const [draft, setDraft] = useState(message.content)
 
   const copy = () => {
-    void navigator.clipboard.writeText(message.content)
+    // A reply copies as its answer, without the reasoning above it.
+    const text =
+      message.role === "assistant"
+        ? splitThinking(message.content).answer || message.content
+        : message.content
+    void navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -190,16 +233,24 @@ export function ChatMessageItem({
 
   // ── assistant message ─────────────────────────────────────────────────────
   const isEmpty = !message.content
+  const { thinking, stillThinking, answer } = splitThinking(message.content)
+  // An empty <think></think> (thinking switched off) gets no toggle.
+  const showThinking = !isEmpty && (stillThinking || Boolean(thinking))
+  // Out of tokens (or stopped) before the closing tag: there is no answer to show.
+  const cutOffWhileThinking = stillThinking && !isStreaming
   return (
     <motion.div {...enter} style={{ transformOrigin: "bottom left" }} className="group flex flex-col items-start gap-1">
       {message.model && (
         <span className="px-3 text-[11px] font-medium text-muted-foreground">{message.model}</span>
       )}
+      {showThinking && (
+        <ThinkingBlock text={thinking ?? ""} active={stillThinking && isStreaming} />
+      )}
       {isEmpty ? (
         <div className="rounded-[20px] rounded-bl-[6px] bg-muted px-3 py-2">
           <TypingDots />
         </div>
-      ) : (
+      ) : answer ? (
         <MessageContent
           markdown
           className={cn(
@@ -207,9 +258,13 @@ export function ChatMessageItem({
             message.error && "bg-destructive/10 text-destructive",
           )}
         >
-          {message.content}
+          {answer}
         </MessageContent>
-      )}
+      ) : cutOffWhileThinking ? (
+        <p className="px-3 text-[13px] text-muted-foreground">
+          The model stopped before it finished thinking. Raise Max tokens to get an answer.
+        </p>
+      ) : null}
 
       {!isEmpty && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">

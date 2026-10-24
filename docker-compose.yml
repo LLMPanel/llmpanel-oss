@@ -48,8 +48,10 @@ services:
       # "no GPU detected" instead of failing inside Docker at deploy time.
       GPU_AVAILABLE: ${GPU_AVAILABLE:-false}
 
-      # This container's own loopback is not the host's. Deployment containers
-      # publish their ports on the host, so reach them via the gateway address.
+      # New deployment containers join this stack's network and are reached by
+      # name, with no host port. Containers created by v0.1.1 and earlier publish
+      # a host port instead; this container's loopback is not the host's, so
+      # those are reached via the gateway address.
       DEPLOYMENT_HOST: host.docker.internal
 
       # Deployable-model catalog. Empty means the public registry.
@@ -88,6 +90,10 @@ services:
       NODE_ENV: production
       # Server-side proxy target for /api/* — internal DNS, never leaves the network.
       HONO_API_URL: http://api:8000
+    extra_hosts:
+      # The chat route streams straight from the model, so the web container
+      # resolves deployment endpoints too, including DEPLOYMENT_HOST ones.
+      - "host.docker.internal:host-gateway"
     depends_on:
       api:
         condition: service_healthy

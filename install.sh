@@ -8,38 +8,51 @@
 # script itself when piped from curl, so reading answers from it is impossible.
 # (Coolify solves this the same way — write a .env, then re-run.)
 #
-#   PANEL_DOMAIN=panel.example.com \
-#   API_DOMAIN=api.example.com \
-#   BASE_DOMAIN=example.com \
-#   ACME_EMAIL=you@example.com \
-#   CF_DNS_API_TOKEN=xxxx \
-#   DEPLOYMENT_MODE=cloud \
-#   RESEND_API_KEY=re_xxxx \
-#   EMAIL_FROM="LLMPanel <noreply@example.com>" \
-#     curl -fsSL .../install.sh | sudo -E bash
+#   curl -fsSL .../install.sh | sudo \
+#     PANEL_DOMAIN=panel.example.com \
+#     API_DOMAIN=api.example.com \
+#     BASE_DOMAIN=example.com \
+#     ACME_EMAIL=you@example.com \
+#     CF_DNS_API_TOKEN=xxxx \
+#     DEPLOYMENT_MODE=cloud \
+#     RESEND_API_KEY=re_xxxx \
+#     EMAIL_FROM="LLMPanel <noreply@example.com>" \
+#     bash
+#
+# The variables go after `sudo`. Written in front of `curl`, they reach only
+# curl, never the bash on the other side of the pipe.
 #
 # Email can also go through Cloudflare Email Sending instead of Resend:
 #   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_EMAIL_API_TOKEN=... EMAIL_FROM=...
 #
 # With no variables set you get a plain-HTTP install on ports 3000/8000.
+#
+# Re-running is how an install upgrades. It pulls the newest images, refreshes
+# the compose files (a changed one is kept beside the new copy as .bak.<time>),
+# and keeps every setting already in .env unless you pass a new value for it.
+# LLMPANEL_KEEP_FILES=1 keeps the compose files on disk as they are, for
+# offline installs and private forks.
 
 set -Eeuo pipefail
 
 REPO="${LLMPANEL_REPO:-LLMPanel/llmpanel-oss}"
 BRANCH="${LLMPANEL_BRANCH:-master}"
-RAW_BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
+# Where the compose files come from. Override to install from a mirror.
+RAW_BASE="${LLMPANEL_RAW_BASE:-https://raw.githubusercontent.com/${REPO}/${BRANCH}}"
 INSTALL_DIR="${LLMPANEL_DIR:-/data/llmpanel}"
 LLMPANEL_VERSION="${LLMPANEL_VERSION:-latest}"
+KEEP_FILES="${LLMPANEL_KEEP_FILES:-0}"
 
-# Config knobs (all optional)
+# Config knobs (all optional). An existing .env fills in any left empty.
 PANEL_DOMAIN="${PANEL_DOMAIN:-}"
 API_DOMAIN="${API_DOMAIN:-}"
 BASE_DOMAIN="${BASE_DOMAIN:-}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 CF_DNS_API_TOKEN="${CF_DNS_API_TOKEN:-}"
 HF_TOKEN="${HF_TOKEN:-}"
-# "self-hosted" (local Docker inference) or "cloud" (users bring RunPod/Vast.ai keys)
-DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-self-hosted}"
+# "self-hosted" (local Docker inference) or "cloud" (users bring RunPod/Vast.ai
+# keys). Defaults to self-hosted after the existing .env has had its say.
+DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-}"
 # Transactional email (sign-up OTP, 2FA, resets): Resend or Cloudflare Email
 # Sending, plus the from address. EMAIL_PROVIDER picks one when both are set.
 EMAIL_PROVIDER="${EMAIL_PROVIDER:-}"
@@ -47,6 +60,19 @@ RESEND_API_KEY="${RESEND_API_KEY:-}"
 CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
 CLOUDFLARE_EMAIL_API_TOKEN="${CLOUDFLARE_EMAIL_API_TOKEN:-}"
 EMAIL_FROM="${EMAIL_FROM:-}"
+# Optional social sign-in.
+GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID:-}"
+GITHUB_CLIENT_SECRET="${GITHUB_CLIENT_SECRET:-}"
+GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
+GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-}"
+
+# Every knob above that an existing .env may already hold.
+SETTINGS=(
+  PANEL_DOMAIN API_DOMAIN BASE_DOMAIN ACME_EMAIL CF_DNS_API_TOKEN HF_TOKEN
+  DEPLOYMENT_MODE EMAIL_PROVIDER RESEND_API_KEY CLOUDFLARE_ACCOUNT_ID
+  CLOUDFLARE_EMAIL_API_TOKEN EMAIL_FROM GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET
+  GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET
+)
 
 readonly RED=$'\033[31m' GREEN=$'\033[32m' YELLOW=$'\033[33m' BOLD=$'\033[1m' DIM=$'\033[2m' RESET=$'\033[0m'
 
@@ -181,32 +207,69 @@ detect_public_ip() {
 
 # ── Filesystem + secrets ──────────────────────────────────────────────────────
 
+# Compose files are refreshed on every run: a stale copy silently keeps an
+# upgrade's fixes out (v0.1.1's local-model chat needed a compose change). A
+# copy that differs is kept beside the new one. The copy on disk wins only with
+# LLMPANEL_KEEP_FILES=1, or when the download fails — offline installs and
+# private forks, where raw.githubusercontent.com is not reachable.
 fetch() {
   local name="$1"
   local dest="${INSTALL_DIR}/$(basename "$name")"
-  # Pre-placed file wins — supports offline installs and private forks where
-  # raw.githubusercontent.com is not reachable.
-  if [[ -f "$dest" ]]; then
+  if [[ -f "$dest" && "$KEEP_FILES" == "1" ]]; then
     ok "using existing $(basename "$name")"
     return 0
   fi
-  curl -fsSL "${RAW_BASE}/${name}" -o "$dest" \
-    || die "could not download ${name} from ${RAW_BASE}"
+
+  local download="${dest}.download"
+  if ! curl -fsSL "${RAW_BASE}/${name}" -o "$download"; then
+    rm -f "$download"
+    [[ -f "$dest" ]] || die "could not download ${name} from ${RAW_BASE}"
+    warn "could not download ${name}; keeping the existing copy"
+    return 0
+  fi
+
+  if [[ -f "$dest" ]] && ! cmp -s "$download" "$dest"; then
+    local backup
+    backup="${dest}.bak.$(date +%s)"
+    cp "$dest" "$backup"
+    ok "updated $(basename "$name") (previous copy: $(basename "$backup"))"
+  fi
+  mv "$download" "$dest"
+}
+
+# The value of a key in the existing .env, or nothing.
+env_value() {
+  grep -E "^$1=" "${INSTALL_DIR}/.env" 2>/dev/null | tail -n 1 | cut -d= -f2- || true
+}
+
+# Re-running the installer is how an install upgrades, so a setting the caller
+# does not pass again comes from the existing .env instead of being blanked —
+# a domain install must not fall back to plain HTTP. A value passed now wins.
+load_existing_env() {
+  [[ -f "${INSTALL_DIR}/.env" ]] || return 0
+  local key
+  for key in "${SETTINGS[@]}"; do
+    if [[ -z "${!key}" ]]; then
+      printf -v "$key" '%s' "$(env_value "$key")"
+    fi
+  done
 }
 
 write_env() {
   local env_file="${INSTALL_DIR}/.env"
+  local previous=""
 
   if [[ -f "$env_file" ]]; then
     # Never regenerate secrets over an existing database — every stored API key
     # and provider credential is encrypted with the current ENCRYPTION_KEY.
-    info "existing .env found — keeping its secrets"
+    info "existing .env found — keeping its secrets and settings"
     # shellcheck disable=SC1090
     BETTER_AUTH_SECRET="$(grep -E '^BETTER_AUTH_SECRET=' "$env_file" | cut -d= -f2-)"
     ENCRYPTION_KEY="$(grep -E '^ENCRYPTION_KEY=' "$env_file" | cut -d= -f2-)"
     [[ -n "$BETTER_AUTH_SECRET" && -n "$ENCRYPTION_KEY" ]] \
       || die "existing ${env_file} is missing BETTER_AUTH_SECRET or ENCRYPTION_KEY; fix or delete it"
-    cp "$env_file" "${env_file}.bak.$(date +%s)"
+    previous="${env_file}.bak.$(date +%s)"
+    cp "$env_file" "$previous"
   else
     BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
     ENCRYPTION_KEY="$(openssl rand -hex 32)"
@@ -243,11 +306,25 @@ CLOUDFLARE_EMAIL_API_TOKEN=${CLOUDFLARE_EMAIL_API_TOKEN}
 EMAIL_FROM=${EMAIL_FROM}
 
 HF_TOKEN=${HF_TOKEN}
-GITHUB_CLIENT_ID=
-GITHUB_CLIENT_SECRET=
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
+GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
 EOF
+
+  # Keys this template does not write (DATABASE_URL, KMS_*, image overrides…)
+  # would otherwise vanish on every upgrade.
+  if [[ -n "$previous" ]]; then
+    local line kept=""
+    while IFS= read -r line; do
+      [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+      grep -q -E "^${line%%=*}=" "$env_file" || kept+="${line}"$'\n'
+    done < "$previous"
+    if [[ -n "$kept" ]]; then
+      printf '\n# Kept from the previous .env\n%s' "$kept" >> "$env_file"
+    fi
+  fi
+
   chmod 600 "$env_file"
   ok "wrote ${env_file}"
 }
@@ -322,13 +399,20 @@ summary() {
     printf '  Set CF_DNS_API_TOKEN in %s/.env and re-run to enable them.\n\n' "$INSTALL_DIR"
   fi
 
-  printf '%sUpdate%s     cd %s && docker compose pull && docker compose up -d\n' "$BOLD" "$RESET" "$INSTALL_DIR"
+  # Re-running refreshes the compose files too; a bare `compose pull` would not.
+  local dir_arg=""
+  if [[ "$INSTALL_DIR" != "/data/llmpanel" ]]; then
+    dir_arg="LLMPANEL_DIR=${INSTALL_DIR} "
+  fi
+  printf '%sUpdate%s     curl -fsSL %s/install.sh | sudo %sbash\n' "$BOLD" "$RESET" "$RAW_BASE" "$dir_arg"
   printf '%sLogs%s       cd %s && docker compose logs -f\n' "$BOLD" "$RESET" "$INSTALL_DIR"
   printf '%sStop%s       cd %s && docker compose down\n' "$BOLD" "$RESET" "$INSTALL_DIR"
   printf '%sUninstall%s  cd %s && docker compose down -v && rm -rf %s\n\n' "$BOLD" "$RESET" "$INSTALL_DIR" "$INSTALL_DIR"
 }
 
 main() {
+  load_existing_env
+  DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-self-hosted}"
   case "$DEPLOYMENT_MODE" in
     self-hosted|cloud) ;;
     *) die "DEPLOYMENT_MODE must be 'self-hosted' or 'cloud', got '${DEPLOYMENT_MODE}'" ;;

@@ -181,7 +181,8 @@ The installer:
 1. installs Docker and the Compose plugin if they are missing;
 2. probes for an NVIDIA GPU and, if it finds one, enables GPU support —
    otherwise local models run on the CPU;
-3. writes `/data/llmpanel/.env` with freshly generated secrets (re-running keeps them);
+3. writes `/data/llmpanel/.env` with freshly generated secrets (re-running keeps
+   them, and every other setting);
 4. pulls `ghcr.io/llmpanel/llmpanel-api` and `ghcr.io/llmpanel/llmpanel-web` and starts them.
 
 The dashboard is then on `http://<your-server>:3000` and the API on
@@ -259,13 +260,17 @@ With no environment variables you get the plain-HTTP install above. For HTTPS
 through Traefik and Let's Encrypt, pass your domains:
 
 ```bash
-PANEL_DOMAIN=panel.example.com \
-API_DOMAIN=api.example.com \
-ACME_EMAIL=you@example.com \
-BASE_DOMAIN=example.com \
-CF_DNS_API_TOKEN=your-cloudflare-dns-token \
-  curl -fsSL https://raw.githubusercontent.com/LLMPanel/llmpanel-oss/master/install.sh | sudo -E bash
+curl -fsSL https://raw.githubusercontent.com/LLMPanel/llmpanel-oss/master/install.sh | sudo \
+  PANEL_DOMAIN=panel.example.com \
+  API_DOMAIN=api.example.com \
+  ACME_EMAIL=you@example.com \
+  BASE_DOMAIN=example.com \
+  CF_DNS_API_TOKEN=your-cloudflare-dns-token \
+  bash
 ```
+
+The variables go after `sudo`: written in front of `curl`, they would reach only
+curl and never the installer.
 
 - `PANEL_DOMAIN` and `ACME_EMAIL` are enough for HTTPS on the dashboard and API.
   `API_DOMAIN` defaults to `api.` plus the panel's parent domain.
@@ -277,11 +282,18 @@ CF_DNS_API_TOKEN=your-cloudflare-dns-token \
 
 ### Upgrade
 
+Re-run the installer:
+
 ```bash
-cd /data/llmpanel && docker compose pull && docker compose up -d
+curl -fsSL https://raw.githubusercontent.com/LLMPanel/llmpanel-oss/master/install.sh | sudo bash
 ```
 
-Database migrations run automatically when the API starts.
+It pulls the newest images and refreshes the compose files, keeping your secrets,
+settings and data. A compose file that changed is saved beside the new one as
+`.bak.<time>`. Database migrations run automatically when the API starts.
+
+`docker compose pull && docker compose up -d` in `/data/llmpanel` updates the
+images only. Some releases also change the compose files, so prefer the installer.
 
 ## Configuration
 

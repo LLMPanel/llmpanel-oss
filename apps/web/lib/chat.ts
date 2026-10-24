@@ -122,6 +122,48 @@ export function contextWindowFor(family?: string | null): number {
   return 8192
 }
 
+// ── reasoning ─────────────────────────────────────────────────────────────────
+
+/** A reply split into the model's thinking and its answer. */
+export interface ReplyParts {
+  /** The text inside <think>…</think>, or null when the model did not think. */
+  thinking: string | null
+  /** True until the closing </think> arrives. */
+  stillThinking: boolean
+  answer: string
+}
+
+const THINK_OPEN = "<think>"
+const THINK_CLOSE = "</think>"
+
+/**
+ * Thinking models (Qwen3, DeepSeek-R1, …) stream their reasoning inline as
+ * `<think>…</think>`: llama.cpp runs with `--reasoning-format none`, and vLLM
+ * does the same without a reasoning parser. Some chat templates open the block
+ * in the prompt, so the reply carries only the closing tag.
+ */
+export function splitThinking(content: string): ReplyParts {
+  const head = content.trimStart()
+  // Mid-stream, "<thi" is the start of a tag, not an answer.
+  if (head && THINK_OPEN.startsWith(head)) {
+    return { thinking: "", stillThinking: true, answer: "" }
+  }
+
+  const opened = head.startsWith(THINK_OPEN)
+  const start = opened ? content.indexOf(THINK_OPEN) + THINK_OPEN.length : 0
+  const close = content.indexOf(THINK_CLOSE, start)
+  if (close === -1) {
+    return opened
+      ? { thinking: content.slice(start).trim(), stillThinking: true, answer: "" }
+      : { thinking: null, stillThinking: false, answer: content }
+  }
+  return {
+    thinking: content.slice(start, close).trim(),
+    stillThinking: false,
+    answer: content.slice(close + THINK_CLOSE.length).trimStart(),
+  }
+}
+
 // ── formatting ────────────────────────────────────────────────────────────────
 
 export function formatCompact(n: number): string {
